@@ -1,35 +1,41 @@
 extern crate rayon;
 
-use rayon::prelude::*;
+mod coordinates;
 
+use {
+    coordinates::{
+        FloatCoord,
+        PixelCoordinates1D,
+        PlotCoordinates1D,
+    },
+    rayon::prelude::*,
+};
 
 // TODO: Hard-code less stuff
 // TODO: Make API less error prone (e.g. make it harder to confuse X/Y coords)
 // TODO: Keep API room for surface plots
 
-// Floating-point type used for axis coordinates
-type XCoord = f32;
-type YCoord = f32;
+// Floating-point type used for axis coordinates (and user data)
+type XCoord = FloatCoord;
+type YCoord = FloatCoord;
 
-// Floating-point type used for fractional pixel coordinates. Absolute positions
-// are given from the left side and the bottom side of the graph. 0 is the left
-// side of the leftmost pixel / bottom side of the bottom-most pixel.
-type Pixels = f32;
+// Floating-point type used for (fractional) pixel coordinates
+type Pixels = FloatCoord;
 type XPixels = Pixels;
 type YPixels = Pixels;
 
 // Object-oriented plot struct, which collects all plot-wide parameters and
 // provides methods to interact with the plot.
 struct Plot2D {
-    // Horizontal and vertical axis ranges
+    // Horizontal and vertical axis coordinates
     // TODO: Support multiple axes and autoscale
-    x_range: (XCoord, XCoord),
-    y_range: (YCoord, YCoord),
+    x_axis: PlotCoordinates1D,
+    y_axis: PlotCoordinates1D,
 
     // Graphical properties of the plot that will be generated
-    x_pixels: u16,
+    x_pixels: PixelCoordinates1D,
     x_subpixels_per_pixel: u8,  // TODO: Should this vary per-function?
-    y_pixels: u16,
+    y_pixels: PixelCoordinates1D,
 
     // Recorded traces
     // TODO: Support non-function traces
