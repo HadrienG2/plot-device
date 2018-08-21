@@ -102,22 +102,26 @@ impl Plot2D {
                               .into_boxed_slice()
     }
 
-    // Compute line height samples in the middle of each horizontal subpixel.
+    // Compute line half-height samples in the middle of each x subpixel.
     //
-    // "Line height" is the length of the intersection of the vertical axis with
-    // a linear interpolant of the function of the given thuickness. As a bit of
-    // trigonometrics will tell you, height = thickness * sqrt(1 + (dy/dx)²).
+    // "Line height" is the half of the length of the intersection of the
+    // vertical axis with a linear interpolant of the function of the given
+    // thickness. This tells us how far above and below a given sample the line
+    // associated with a function plot should extend.
+    //
+    // As a bit of trigonometrics will tell you,
+    // height = thickness/2 * sqrt(1 + (dy/dx)²).
     //
     fn compute_function_line_heights(
         &self,
         samples: &[YPixels],
         line_thickness: Pixels
     ) -> Box<[YPixels]> {
-        // 1/dx² is always the same, so we can pre-compute it
+        let half_thickness = line_thickness / 2.;
         let inv_dx2 = (self.x_subpixels_per_pixel as XPixels).powi(2);
         samples.par_windows(2)
                .map(|y_win| y_win[1] - y_win[0])
-               .map(|dy| line_thickness * (1. + dy.powi(2) * inv_dx2).sqrt())
+               .map(|dy| half_thickness * (1. + dy.powi(2) * inv_dx2).sqrt())
                .collect::<Vec<_>>()
                .into_boxed_slice()
     }
@@ -158,6 +162,6 @@ mod tests {
         // Check some properties of the line height
         let heights = &plot.traces[0].line_heights;
         assert_eq!(heights.len(), samples.len() - 1);
-        heights.iter().for_each(|h| assert!(*h >= LINE_THICKNESS));
+        heights.iter().for_each(|h| assert!(*h >= LINE_THICKNESS / 2.));
     }
 }
