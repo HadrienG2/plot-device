@@ -155,6 +155,11 @@ impl PixelCoordinates1D {
             num_pixels,
         }
     }
+
+    /// Tell how many pixels there are on this axis
+    pub fn num_pixels(&self) -> IntCoord {
+        self.num_pixels
+    }
 }
 //
 impl CoordinatesSystem1D for PixelCoordinates1D {

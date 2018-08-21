@@ -4,6 +4,7 @@ mod coordinates;
 
 use {
     coordinates::{
+        CoordinatesSystem1D,
         FloatCoord,
         PixelCoordinates1D,
         PlotCoordinates1D,
@@ -35,6 +36,7 @@ struct Plot2D {
     // Graphical properties of the plot that will be generated
     x_pixels: PixelCoordinates1D,
     x_subpixels_per_pixel: u8,  // TODO: Should this vary per-function?
+                                // TODO: Shouldn't that be another PixelCoord1D?
     y_pixels: PixelCoordinates1D,
 
     // Recorded traces
@@ -83,20 +85,18 @@ impl Plot2D {
         function: impl Fn(XCoord) -> YCoord + Send + Sync
     ) -> Box<[YPixels]> {
         // Count how many horizontal subpixels we will generate
-        let num_x_subpixels =
-                (self.x_pixels as u32) * (self.x_subpixels_per_pixel as u32);
+        let num_x_pixels = self.x_pixels.num_pixels() as u32;
+        let x_subpixels_per_pixel = self.x_subpixels_per_pixel as u32;
+        let num_x_subpixels = num_x_pixels * x_subpixels_per_pixel;
 
         // Conversion from a sample index to the corresponding x coordinate
+        let pixel_to_x = self.x_pixels.to(&self.x_axis);
         let sample_to_x = |idx: u32| -> XCoord {
-            let (min_x, max_x) = self.x_range;
-            let fractional_x = (idx as XCoord) / (num_x_subpixels as XCoord);
-            min_x + (max_x - min_x) * fractional_x
+            let frac_pixel_x = (idx as XCoord) / (num_x_subpixels as XCoord);
+            pixel_to_x.apply(frac_pixel_x)
         };
         // Conversion from a y coordinate to (fractional) vertical pixel
-        let y_to_pixel = |y: YCoord| -> YPixels {
-            let (min_y, max_y) = self.y_range;
-            (y - min_y) / (max_y - min_y) * (self.y_pixels as YCoord)
-        };
+        let y_to_pixel = self.y_axis.to(&self.y_pixels);
 
         // Generate the function samples. Note that we must generate one more
         // sample than we have subpixels because we want a sample on the
@@ -104,7 +104,7 @@ impl Plot2D {
         (0..num_x_subpixels+1).into_par_iter()
                               .map(sample_to_x)
                               .map(function)
-                              .map(y_to_pixel)
+                              .map(|y| y_to_pixel.apply(y))
                               .collect::<Vec<_>>()
                               .into_boxed_slice()
     }
@@ -144,11 +144,11 @@ mod tests {
     fn it_works() {
         // Graph parameters
         let mut plot = Plot2D {
-            x_range: (0., 6.28),
-            y_range: (-1.2, 1.2),
-            x_pixels: 8192,
+            x_axis: PlotCoordinates1D::new(0., 6.28),
+            y_axis: PlotCoordinates1D::new(-1.2, 1.2),
+            x_pixels: PixelCoordinates1D::new(8192),
             x_subpixels_per_pixel: 1,
-            y_pixels: 4320,
+            y_pixels: PixelCoordinates1D::new(4320),
             traces: Vec::new(),
         };
 
@@ -158,12 +158,11 @@ mod tests {
 
         // Check some properties of the function samples
         let samples = &plot.traces[0].y_samples;
-        assert_eq!(samples.len(), (plot.x_pixels + 1) as usize);
-        let y_to_pixel = |y|
-            (y - plot.y_range.0) / (plot.y_range.1 - plot.y_range.0)
-                                 * (plot.y_pixels as YPixels);
+        assert_eq!(samples.len(), (plot.x_pixels.num_pixels() + 1) as usize);
+        let y_to_pixel = plot.y_axis.to(&plot.y_pixels);
         samples.iter().for_each(|s| {
-            assert!((*s >= y_to_pixel(-1.)) && (*s <= y_to_pixel(1.)));
+            assert!(*s >= y_to_pixel.apply(-1.));
+            assert!(*s <= y_to_pixel.apply(1.));
         });
 
         // Check some properties of the line height
