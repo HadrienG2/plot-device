@@ -13,10 +13,11 @@ pub type FloatCoord = f32;
 /// Standard integer coordinate type
 ///
 /// This is the standard integer type for integral coordinates like pixel
-/// indices. It was chosen using a similar rationale as Float: 16 bits seem to
-/// be enough for current screens, while 8 bits would be too little.
+/// indices. It was chosen using a similar rationale as Float: 32 bits seem to
+/// be enough for current screens, even with supersampling, while 16 bits would
+/// be a bit too little.
 ///
-pub type IntCoord = u16;
+pub type IntCoord = u32;
 
 
 /// Coordinate system abstraction

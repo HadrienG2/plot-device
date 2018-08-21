@@ -6,6 +6,7 @@ use {
     coordinates::{
         CoordinatesSystem1D,
         FloatCoord,
+        IntCoord,
         PixelCoordinates1D,
         PlotCoordinates1D,
     },
@@ -84,17 +85,14 @@ impl Plot2D {
         &self,
         function: impl Fn(XCoord) -> YCoord + Send + Sync
     ) -> Box<[YPixels]> {
-        // Count how many horizontal subpixels we will generate
-        let num_x_pixels = self.x_pixels.num_pixels() as u32;
-        let x_subpixels_per_pixel = self.x_subpixels_per_pixel as u32;
-        let num_x_subpixels = num_x_pixels * x_subpixels_per_pixel;
+        // Build a pixel axis for x subpixels
+        let num_x_subpixels =
+            self.x_pixels.num_pixels() * self.x_subpixels_per_pixel as IntCoord;
+        let x_subpixels = PixelCoordinates1D::new(num_x_subpixels);
 
         // Conversion from a sample index to the corresponding x coordinate
-        let pixel_to_x = self.x_pixels.to(&self.x_axis);
-        let sample_to_x = |idx: u32| -> XCoord {
-            let frac_pixel_x = (idx as XCoord) / (num_x_subpixels as XCoord);
-            pixel_to_x.apply(frac_pixel_x)
-        };
+        let subpixel_to_x = x_subpixels.to(&self.x_axis);
+
         // Conversion from a y coordinate to (fractional) vertical pixel
         let y_to_pixel = self.y_axis.to(&self.y_pixels);
 
@@ -102,7 +100,7 @@ impl Plot2D {
         // sample than we have subpixels because we want a sample on the
         // right-hand side of the rightmost subpixel.
         (0..num_x_subpixels+1).into_par_iter()
-                              .map(sample_to_x)
+                              .map(|idx| subpixel_to_x.apply(idx as FloatCoord))
                               .map(function)
                               .map(|y| y_to_pixel.apply(y))
                               .collect::<Vec<_>>()
