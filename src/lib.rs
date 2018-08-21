@@ -62,6 +62,7 @@ impl Plot2D {
         line_thickness: Pixels,
     ) {
         let y_samples = self.compute_function_samples(function);
+        // TODO: The following steps should be lazy, not eager
         let line_heights = self.compute_function_line_heights(&y_samples,
                                                               line_thickness);
         self.traces.push(FunctionTrace { y_samples, line_heights });
