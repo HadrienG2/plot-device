@@ -36,8 +36,8 @@ struct Plot2D {
 
     // Graphical properties of the plot that will be generated
     x_pixels: PixelCoordinates1D,
-    x_subpixels_per_pixel: u8,  // TODO: Should this vary per-function?
-                                // TODO: Shouldn't that be another PixelCoord1D?
+    x_supersampling: u8,  // TODO: Should this vary per-function?
+                          // TODO: Shouldn't that be another PixelCoord1D?
     y_pixels: PixelCoordinates1D,
 
     // Recorded traces
@@ -87,7 +87,7 @@ impl Plot2D {
     ) -> Box<[YPixels]> {
         // Build a pixel axis for x subpixels
         let num_x_subpixels =
-            self.x_pixels.num_pixels() * self.x_subpixels_per_pixel as IntCoord;
+            self.x_pixels.num_pixels() * self.x_supersampling as IntCoord;
         let x_subpixels = PixelCoordinates1D::new(num_x_subpixels);
 
         // Conversion from a sample index to the corresponding x coordinate
@@ -123,7 +123,7 @@ impl Plot2D {
         line_thickness: Pixels
     ) -> Box<[YPixels]> {
         let half_thickness = line_thickness / 2.;
-        let inv_dx2 = (self.x_subpixels_per_pixel as XPixels).powi(2);
+        let inv_dx2 = (self.x_supersampling as XPixels).powi(2);
         samples.par_windows(2)
                .map(|y_win| y_win[1] - y_win[0])
                .map(|dy| half_thickness * (1. + dy.powi(2) * inv_dx2).sqrt())
@@ -145,7 +145,7 @@ mod tests {
             x_axis: PlotCoordinates1D::new(0., 6.28),
             y_axis: PlotCoordinates1D::new(-1.2, 1.2),
             x_pixels: PixelCoordinates1D::new(8192),
-            x_subpixels_per_pixel: 1,
+            x_supersampling: 2,
             y_pixels: PixelCoordinates1D::new(4320),
             traces: Vec::new(),
         };
@@ -156,7 +156,9 @@ mod tests {
 
         // Check some properties of the function samples
         let samples = &plot.traces[0].y_samples;
-        assert_eq!(samples.len(), (plot.x_pixels.num_pixels() + 1) as usize);
+        let num_x_subpixels =
+            plot.x_pixels.num_pixels() * (plot.x_supersampling as IntCoord) + 1;
+        assert_eq!(samples.len(), num_x_subpixels as usize);
         let y_to_pixel = plot.y_axis.to(&plot.y_pixels);
         samples.iter().for_each(|s| {
             assert!(*s >= y_to_pixel.apply(-1.));
