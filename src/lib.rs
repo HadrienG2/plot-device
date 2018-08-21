@@ -16,6 +16,7 @@ use {
 // TODO: Hard-code less stuff
 // TODO: Make API less error prone (e.g. make it harder to confuse X/Y coords)
 // TODO: Keep API room for surface plots
+// TODO: Separate plot style from plot data
 
 // Floating-point type used for user data and axis ranges
 type Data = FloatCoord;
