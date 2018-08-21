@@ -17,9 +17,10 @@ use {
 // TODO: Make API less error prone (e.g. make it harder to confuse X/Y coords)
 // TODO: Keep API room for surface plots
 
-// Floating-point type used for axis coordinates (and user data)
-type XCoord = FloatCoord;
-type YCoord = FloatCoord;
+// Floating-point type used for user data and axis ranges
+type Data = FloatCoord;
+type XData = Data;
+type YData = Data;
 
 // Floating-point type used for (fractional) pixel coordinates
 type Pixels = FloatCoord;
@@ -67,7 +68,7 @@ impl Plot2D {
     // TODO: Support non-function plotting
     pub fn add_function_trace(
         &mut self,
-        function: impl Fn(XCoord) -> YCoord + Send + Sync,
+        function: impl Fn(XData) -> YData + Send + Sync,
         line_thickness: Pixels,
     ) {
         let y_samples = self.compute_function_samples(function);
@@ -83,7 +84,7 @@ impl Plot2D {
     // the FunctionTrace struct for more info.
     fn compute_function_samples(
         &self,
-        function: impl Fn(XCoord) -> YCoord + Send + Sync
+        function: impl Fn(XData) -> YData + Send + Sync
     ) -> Box<[YPixels]> {
         // Build a pixel axis for x subpixels
         let num_x_subpixels =
