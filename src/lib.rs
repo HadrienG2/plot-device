@@ -13,6 +13,7 @@ use {
     rayon::prelude::*,
 };
 
+
 // TODO: Hard-code less stuff
 // TODO: Make API less error prone (e.g. make it harder to confuse X/Y coords)
 // TODO: Keep API room for surface plots
@@ -24,15 +25,17 @@ type XData = Data;
 type YData = Data;
 
 // Floating-point type used for (fractional) pixel coordinates
-type Pixels = FloatCoord;
-type XPixels = Pixels;
-type YPixels = Pixels;
+type FracPixels = FloatCoord;
+type XPixels = FracPixels;
+type YPixels = FracPixels;
+
 
 // Object-oriented plot struct, which collects all plot-wide parameters and
 // provides methods to interact with the plot.
 struct Plot2D {
     // Horizontal and vertical axis coordinates
     // TODO: Support multiple axes and autoscale
+    // TODO: Support axis styling
     x_axis: PlotCoordinates1D,
     y_axis: PlotCoordinates1D,
 
@@ -70,7 +73,7 @@ impl Plot2D {
     pub fn add_function_trace(
         &mut self,
         function: impl Fn(XData) -> YData + Send + Sync,
-        line_thickness: Pixels,
+        line_thickness: FracPixels,
     ) {
         let y_samples = self.compute_function_samples(function);
         // TODO: The following steps should be lazy, not eager
@@ -122,7 +125,7 @@ impl Plot2D {
     fn compute_function_line_heights(
         &self,
         samples: &[YPixels],
-        line_thickness: Pixels
+        line_thickness: FracPixels
     ) -> Box<[YPixels]> {
         let half_thickness = line_thickness / 2.;
         let inv_dx2 = (self.x_supersampling as XPixels).powi(2);
@@ -154,7 +157,7 @@ mod tests {
         };
 
         // Add a function trace of width 42 pixels
-        const LINE_THICKNESS: Pixels = 42.;
+        const LINE_THICKNESS: FracPixels = 42.;
         plot.add_function_trace(|x| x.sin(), LINE_THICKNESS);
 
         // Check some properties of the function samples
