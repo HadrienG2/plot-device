@@ -29,6 +29,29 @@ type FracPixels = FloatCoord;
 type XPixels = FracPixels;
 type YPixels = FracPixels;
 
+// Integer type used for whole numbers of pixels
+type IntPixels = IntCoord;
+
+
+// General abstraction for 2D data
+//
+// TODO: Should probably be an nalgebra 2D vector for this
+//
+struct Bidi<T> {
+    x: T,
+    y: T,
+}
+
+// Range of an axis
+//
+// TODO: Add auto-scale support
+// TODO: Add nonlinear scale support
+//
+struct AxisRange {
+    start: FloatCoord,
+    stop: FloatCoord,
+}
+
 
 // Object-oriented plot struct, which collects all plot-wide parameters and
 // provides methods to interact with the plot.
@@ -66,7 +89,26 @@ struct FunctionTrace {
 }
 
 impl Plot2D {
-    // TODO: Add builder-style plot setup
+    // Create a 2D plot
+    //
+    // TODO: Move supersampling handling to functions
+    //
+    pub fn new(size: Bidi<IntPixels>,
+               x_supersampling: u8,
+               axis_ranges: Bidi<AxisRange>) -> Self {
+        Self {
+            x_axis: PlotCoordinates1D::new(axis_ranges.x.start,
+                                           axis_ranges.x.stop),
+            y_axis: PlotCoordinates1D::new(axis_ranges.y.start,
+                                           axis_ranges.y.stop),
+            x_pixels: PixelCoordinates1D::new(size.x),
+            x_supersampling,
+            y_pixels: PixelCoordinates1D::new(size.y),
+            traces: Vec::new(),
+        }
+    }
+
+    // TODO: Add DPI support and setup
 
     // Add a function trace
     // TODO: Support non-function plotting
@@ -147,14 +189,11 @@ mod tests {
     #[test]
     fn it_works() {
         // Graph parameters
-        let mut plot = Plot2D {
-            x_axis: PlotCoordinates1D::new(0., 6.28),
-            y_axis: PlotCoordinates1D::new(-1.2, 1.2),
-            x_pixels: PixelCoordinates1D::new(8192),
-            x_supersampling: 2,
-            y_pixels: PixelCoordinates1D::new(4320),
-            traces: Vec::new(),
-        };
+        let mut plot =
+            Plot2D::new(Bidi { x: 8192, y:4320 },
+                        2,
+                        Bidi { x: AxisRange { start: 0., stop: 6.28 },
+                               y: AxisRange { start: -1.2, stop: 1.2 } });
 
         // Add a function trace of width 42 pixels
         const LINE_THICKNESS: FracPixels = 42.;
