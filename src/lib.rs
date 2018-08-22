@@ -46,6 +46,7 @@ struct Bidi<T> {
 //
 // TODO: Add auto-scale support
 // TODO: Add nonlinear scale support
+// TODO: Check that start != stop
 //
 struct AxisRange {
     start: FloatCoord,
@@ -67,6 +68,7 @@ struct Plot2D {
     x_pixels: PixelCoordinates1D,
     x_supersampling: u8,  // TODO: Should this vary per-function?
                           // TODO: Shouldn't that be another PixelCoord1D?
+                          // TODO: Shouldn't that be a NonZeroU8?
     y_pixels: PixelCoordinates1D,
 
     // Recorded traces
@@ -97,6 +99,10 @@ impl Plot2D {
     pub fn new(size: Bidi<IntPixels>,
                x_supersampling: u8,
                axis_ranges: Bidi<AxisRange>) -> Self {
+        // TODO: Validate input better:
+        //       - sizes should be nonzero
+        //       - supersampling should be nonzero
+        //       - axis ranges should have start != stop
         Self {
             x_axis: PlotCoordinates1D::new(axis_ranges.x.start,
                                            axis_ranges.x.stop),
