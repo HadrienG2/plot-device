@@ -59,6 +59,7 @@ struct Plot2D {
     // Horizontal and vertical axis coordinates
     // TODO: Support multiple axes and autoscale
     // TODO: Support axis styling
+    // TODO: Support non-linear scales
     x_axis: PlotCoordinates1D,
     y_axis: PlotCoordinates1D,
 
