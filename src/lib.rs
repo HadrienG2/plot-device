@@ -126,6 +126,7 @@ impl Plot2D {
     ) -> Box<[YPixels]> {
         let half_thickness = line_thickness / 2.;
         let inv_dx2 = (self.x_supersampling as XPixels).powi(2);
+        // TODO: Reconsider parallelization of this iteration
         samples.par_windows(2)
                .map(|y_win| y_win[1] - y_win[0])
                .map(|dy| half_thickness * (1. + dy.powi(2) * inv_dx2).sqrt())
