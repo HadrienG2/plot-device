@@ -115,10 +115,12 @@ impl Plot2D {
         }
     }
 
-    // TODO: Add DPI support and setup
+    // TODO: Add optional DPI support and associated setup, can do so by
+    //       replacing constructor with builder
 
     // Add a function trace
     // TODO: Support non-function plotting
+    // TODO: Keep trace options and trace styling apart
     pub fn add_function_trace(
         &mut self,
         function: impl Fn(XData) -> YData + Send + Sync,
