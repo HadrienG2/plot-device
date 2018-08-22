@@ -102,7 +102,7 @@ impl Plot2D {
         // TODO: Validate input better:
         //       - sizes should be nonzero
         //       - supersampling should be nonzero
-        //       - axis ranges should have start != stop
+        //       - axis ranges should have start != stop (see AxisRange)
         Self {
             x_axis: PlotCoordinates1D::new(axis_ranges.x.start,
                                            axis_ranges.x.stop),
