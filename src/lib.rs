@@ -9,6 +9,7 @@ use {
         IntCoord,
         PixelCoordinates1D,
         PlotCoordinates1D,
+        VulkanCoordinates1D,
     },
     rayon::prelude::*,
 };
@@ -98,6 +99,15 @@ struct FunctionTrace {
     // One line height sample is measured in the _middle_ of each horizontal
     // subpixel. The height is given in fractional pixels.
     line_heights: Box<[YPixels]>,
+
+    // Vertices of the triangle strip
+    strip_vertices: Box<[Vertex]>,
+}
+
+// A vertex for the Vulkan renderer
+struct Vertex {
+    // Position of the vertex in Vulkan coordinates
+    position: [f32; 2],
 }
 
 impl Plot2D {
@@ -282,6 +292,7 @@ mod tests {
         plot.render();
 
         // Prepare to check the traces
+        let y_to_vulkan = plot.y_axis.to(&VulkanCoordinates1D());
         let y_to_pixel = plot.y_axis.to(&plot.y_pixels);
         let minus_one_pixel = y_to_pixel.apply(-1.);
         let plus_one_pixel = y_to_pixel.apply(1.);
@@ -301,6 +312,8 @@ mod tests {
             for &height in &trace.line_heights[..] {
                 assert!(height >= LINE_THICKNESS / 2.);
             }
+
+            // TODO: Check the triangle strip
         }
     }
 }
