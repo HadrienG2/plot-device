@@ -264,6 +264,9 @@ impl Plot2D {
         y_positions: &[YPixels],
         line_heights: &[YPixels]
     ) -> Box<[Vertex]> {
+        // Check that the input slices match our expectations
+        debug_assert_eq!(y_positions.len(), line_heights.len() + 1);
+
         // Interpolate line heights on pixel edges, clamping to edge value
         let mut interp_heights = Vec::with_capacity(y_positions.len());
         interp_heights.push(line_heights[0]);
