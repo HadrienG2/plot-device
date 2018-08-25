@@ -149,6 +149,7 @@ impl Plot2D {
         line_thickness: FracPixels,
     ) {
         assert!(x_supersampling > 0);
+        assert!(line_thickness > 0.);
         let y_samples = self.compute_function_samples(function,
                                                       x_supersampling);
         self.data.push(FunctionData { x_supersampling,
@@ -174,7 +175,7 @@ impl Plot2D {
         x_supersampling: u8
     ) -> Box<[YData]> {
         // This function is not meant to be called directly, so can use debug
-        debug_assert!(x_supersampling != 0);
+        debug_assert!(x_supersampling > 0);
 
         // Build a pixel axis for x subpixels
         let num_x_subpixels =
@@ -233,6 +234,8 @@ impl Plot2D {
         y_samples: &[YPixels],
         line_thickness: FracPixels
     ) -> Box<[YPixels]> {
+        debug_assert!(x_supersampling > 0);
+        debug_assert!(line_thickness > 0.);
         let half_thickness = line_thickness / 2.;
         let inv_dx2 = (x_supersampling as XPixels).powi(2);
         y_samples.windows(2)
