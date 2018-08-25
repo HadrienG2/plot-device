@@ -283,7 +283,7 @@ mod tests {
                 y_samples[trace] = y_sample;
             }
             let sum_squares = y_samples[0].powi(2) + y_samples[1].powi(2);
-            assert!((sum_squares - 1.).abs() < 2.*float_coord::EPSILON);
+            assert!((sum_squares - 1.).abs() <= float_coord::EPSILON);
         }
 
         // Render the function traces
