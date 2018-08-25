@@ -167,8 +167,6 @@ impl Plot2D {
                                .into_boxed_slice()
     }
 
-    // TODO: Consider whether these functions should go away
-
     // Sample a function on plot pixel edges
     fn compute_function_samples(
         &self,
