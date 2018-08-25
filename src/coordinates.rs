@@ -182,11 +182,6 @@ impl CoordinatesSystem1D for PixelCoordinates1D {
 #[derive(Default)]
 pub struct VulkanCoordinates1D();
 //
-impl VulkanCoordinates1D {
-    /// Build Vulkan's coordinate system
-    pub fn new() -> Self { VulkanCoordinates1D() }
-}
-//
 impl CoordinatesSystem1D for VulkanCoordinates1D {
     fn from_normalized(&self) -> CoordinatesTransform1D {
         // Vulkan expects vertex positions from -1 to 1

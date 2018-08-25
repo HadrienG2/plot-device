@@ -212,7 +212,59 @@ impl Plot2D {
             trace.line_thickness
         );
 
-        // Interpolate line heights on pixel edges
+        // Compute the triangle strip directly
+        let strip_vertices = self.compute_function_strip_vertices(
+            &y_positions,
+            &line_heights
+        );
+
+        // TODO: Do the actual rendering instead of merely recording trace data
+        FunctionTrace {
+            y_positions,
+            line_heights,
+            strip_vertices,
+        }
+    }
+
+    // Compute line height samples in the middle of each x subpixel.
+    //
+    // "Line height" is the half of the length of the intersection of the
+    // vertical axis with a linear interpolant of the function of the given
+    // thickness. This tells us how far above and below a given sample the line
+    // associated with a function plot should extend.
+    //
+    // As a bit of trigonometrics will tell you,
+    // height = thickness/2 * sqrt(1 + (dy/dx)²).
+    //
+    fn compute_function_line_heights(
+        &self,
+        x_supersampling: u8,
+        y_samples: &[YPixels],
+        line_thickness: FracPixels
+    ) -> Box<[YPixels]> {
+        debug_assert!(x_supersampling > 0);
+        debug_assert!(line_thickness > 0.);
+        let half_thickness = line_thickness / 2.;
+        let inv_dx2 = (x_supersampling as XPixels).powi(2);
+        y_samples.windows(2)
+                 .map(|y_win| y_win[1] - y_win[0])
+                 .map(|dy| half_thickness * (1. + dy.powi(2) * inv_dx2).sqrt())
+                 .collect::<Vec<_>>()
+                 .into_boxed_slice()
+    }
+
+    // Compute a triangle strip from function position and line height samples
+    //
+    // Note that since function samples lie on subpixel edges and line height
+    // samples lie on pixel centers, there is one more function position sample
+    // than there are line height samples.
+    //
+    fn compute_function_strip_vertices(
+        &self,
+        y_positions: &[YPixels],
+        line_heights: &[YPixels]
+    ) -> Box<[Vertex]> {
+        // Interpolate line heights on pixel edges, clamping to edge value
         let mut interp_heights = Vec::with_capacity(y_positions.len());
         interp_heights.push(line_heights[0]);
         for heights in line_heights.windows(2) {
@@ -239,41 +291,7 @@ impl Plot2D {
             let y_bottom = y_pixel_to_vulkan.apply(y + h);
             strip_vertices.push(Vertex { position: [x_vulkan, y_bottom] });
         }
-        let strip_vertices = strip_vertices.into_boxed_slice();
-
-        // TODO: Do the actual rendering instead of merely recording trace data
-        FunctionTrace {
-            y_positions,
-            line_heights,
-            strip_vertices,
-        }
-    }
-
-    // Compute line half-height samples in the middle of each x subpixel.
-    //
-    // "Line height" is the half of the length of the intersection of the
-    // vertical axis with a linear interpolant of the function of the given
-    // thickness. This tells us how far above and below a given sample the line
-    // associated with a function plot should extend.
-    //
-    // As a bit of trigonometrics will tell you,
-    // height = thickness/2 * sqrt(1 + (dy/dx)²).
-    //
-    fn compute_function_line_heights(
-        &self,
-        x_supersampling: u8,
-        y_samples: &[YPixels],
-        line_thickness: FracPixels
-    ) -> Box<[YPixels]> {
-        debug_assert!(x_supersampling > 0);
-        debug_assert!(line_thickness > 0.);
-        let half_thickness = line_thickness / 2.;
-        let inv_dx2 = (x_supersampling as XPixels).powi(2);
-        y_samples.windows(2)
-                 .map(|y_win| y_win[1] - y_win[0])
-                 .map(|dy| half_thickness * (1. + dy.powi(2) * inv_dx2).sqrt())
-                 .collect::<Vec<_>>()
-                 .into_boxed_slice()
+        strip_vertices.into_boxed_slice()
     }
 }
 
