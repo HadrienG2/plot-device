@@ -212,10 +212,40 @@ impl Plot2D {
             trace.line_thickness
         );
 
+        // Interpolate line heights on pixel edges
+        let mut interp_heights = Vec::with_capacity(y_positions.len());
+        interp_heights.push(line_heights[0]);
+        for heights in line_heights.windows(2) {
+            interp_heights.push((heights[0] + heights[1]) / 2.);
+        }
+        interp_heights.push(line_heights[line_heights.len() - 1]);
+        let interp_heights = interp_heights.into_boxed_slice();
+
+        // Prepare coordinate conversions from pixel coordinates to Vulkan ones
+        let num_x_subpixels_us = interp_heights.len();
+        let num_x_subpixels = num_x_subpixels_us as IntPixels;
+        let x_subpixels = PixelCoordinates1D::new(num_x_subpixels);
+        let x_subpixel_to_vulkan = x_subpixels.to(&VulkanCoordinates1D());
+        let y_pixel_to_vulkan = self.y_pixels.to(&VulkanCoordinates1D());
+
+        // Compute the final triangle strip
+        let mut strip_vertices = Vec::with_capacity(2 * num_x_subpixels_us);
+        for (i, (y, h)) in y_positions.iter().zip(interp_heights.iter())
+                                             .enumerate()
+        {
+            let x_vulkan = x_subpixel_to_vulkan.apply(i as FloatCoord);
+            let y_top = y_pixel_to_vulkan.apply(y - h);
+            strip_vertices.push(Vertex { position: [x_vulkan, y_top] });
+            let y_bottom = y_pixel_to_vulkan.apply(y + h);
+            strip_vertices.push(Vertex { position: [x_vulkan, y_bottom] });
+        }
+        let strip_vertices = strip_vertices.into_boxed_slice();
+
         // TODO: Do the actual rendering instead of merely recording trace data
         FunctionTrace {
             y_positions,
             line_heights,
+            strip_vertices,
         }
     }
 
@@ -294,10 +324,9 @@ mod tests {
         plot.render();
 
         // Prepare to check the traces
-        let y_to_vulkan = plot.y_axis.to(&VulkanCoordinates1D());
         let y_to_pixel = plot.y_axis.to(&plot.y_pixels);
-        let minus_one_pixel = y_to_pixel.apply(-1.);
         let plus_one_pixel = y_to_pixel.apply(1.);
+        let minus_one_pixel = y_to_pixel.apply(-1.);
 
         // Check the recorded function traces
         assert_eq!(plot.traces.len(), 2);
@@ -305,8 +334,8 @@ mod tests {
             // Check the position samples
             assert_eq!(trace.y_positions.len(), X_SUBPIXELS_US + 1);
             for &y_pixel in &trace.y_positions[..] {
-                assert!(y_pixel >= minus_one_pixel);
-                assert!(y_pixel <= plus_one_pixel);
+                assert!(y_pixel >= plus_one_pixel);
+                assert!(y_pixel <= minus_one_pixel);
             }
 
             // Check the line heights
@@ -315,7 +344,14 @@ mod tests {
                 assert!(height >= LINE_THICKNESS / 2.);
             }
 
-            // TODO: Check the triangle strip
+            // Check the triangle strip
+            for vertex in &trace.strip_vertices[..] {
+                assert!(vertex.position[0] >= -1.);
+                assert!(vertex.position[0] <= 1.);
+                assert!(vertex.position[1] >= -1.);
+                assert!(vertex.position[1] <= 1.);
+
+            }
         }
     }
 }
