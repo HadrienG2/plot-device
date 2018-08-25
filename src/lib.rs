@@ -124,8 +124,9 @@ impl Plot2D {
         Self {
             x_axis: PlotCoordinates1D::new(axis_ranges.x.start,
                                            axis_ranges.x.stop),
-            y_axis: PlotCoordinates1D::new(axis_ranges.y.start,
-                                           axis_ranges.y.stop),
+            // TODO: Instead of flipping like this, add proper 2D support
+            y_axis: PlotCoordinates1D::new(axis_ranges.y.stop,
+                                           axis_ranges.y.start),
             x_pixels: PixelCoordinates1D::new(size.x),
             y_pixels: PixelCoordinates1D::new(size.y),
             data: Vec::new(),
