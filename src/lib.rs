@@ -351,11 +351,15 @@ mod tests {
             }
 
             // Check the triangle strip
-            for vertex in &trace.strip_vertices[..] {
-                assert!(vertex.position[0] >= -1.);
-                assert!(vertex.position[0] <= 1.);
-                assert!(vertex.position[1] >= -1.);
-                assert!(vertex.position[1] <= 1.);
+            assert_eq!(trace.strip_vertices.len(), 2*trace.y_positions.len());
+            for vx_pair in trace.strip_vertices.chunks(2) {
+                assert_eq!(vx_pair[0].position[0], vx_pair[1].position[0]);
+                assert!(vx_pair[0].position[1] < vx_pair[1].position[1]);
+                for vertex in vx_pair {
+                    for &coord in &vertex.position {
+                        assert!((coord >= -1.) && (coord <= 1.));
+                    }
+                }
 
             }
         }
