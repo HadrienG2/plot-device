@@ -66,25 +66,34 @@ struct Plot2D {
 
     // Graphical properties of the plot that will be generated
     x_pixels: PixelCoordinates1D,
-    x_supersampling: u8,  // TODO: Should this vary per-function?
-                          // TODO: Shouldn't that be another PixelCoord1D?
-                          // TODO: Shouldn't that be a NonZeroU8?
     y_pixels: PixelCoordinates1D,
 
+    // Recorded data
+    // TODO: Support non-function data
+    data: Vec<FunctionData>,
+
     // Recorded traces
-    // TODO: Support non-function traces
-    traces: Vec<FunctionTrace>,
+    // TODO: Remove this once rendering is implemented
+    traces: Box<[FunctionTrace]>,
+}
+
+// Data of a function plot
+struct FunctionData {
+    // Level of supersampling that was applied on the horizontal axis
+    x_supersampling: u8,
+
+    // One function sample on LHS of each x subpixel + one on RHS of last pixel
+    y_data: Box<[YData]>,
+
+    // Desired line thickness in pixels
+    // TODO: Add DPI support
+    line_thickness: FracPixels,
 }
 
 // Trace of a function on a plot
-// TODO: Support non-function plotting
 struct FunctionTrace {
-    // One function sample on LHS of each x subpixel + one on RHS of last pixel.
-    //
-    // Function samples are given in fractional pixel coordinates, where 0 is
-    // the bottom of the bottom-most pixel row and 1 is the top of that pixel.
-    //
-    y_samples: Box<[YPixels]>,
+    // Function samples, translated to fractional pixel coordinates on the plot
+    y_positions: Box<[YPixels]>,
 
     // One line height sample is measured in the _middle_ of each horizontal
     // subpixel. The height is given in fractional pixels.
@@ -94,24 +103,23 @@ struct FunctionTrace {
 impl Plot2D {
     // Create a 2D plot
     //
-    // TODO: Move supersampling handling to functions
+    // TODO: Can pixel dims be extracted from a Vulkan surface?
     //
     pub fn new(size: Bidi<IntPixels>,
-               x_supersampling: u8,
                axis_ranges: Bidi<AxisRange>) -> Self {
-        // TODO: Validate input better:
-        //       - sizes should be nonzero
-        //       - supersampling should be nonzero
-        //       - axis ranges should have start != stop (see AxisRange)
+        assert!(size.x > 0);
+        assert!(size.y > 0);
+        assert!(axis_ranges.x.start != axis_ranges.x.stop);
+        assert!(axis_ranges.y.start != axis_ranges.y.stop);
         Self {
             x_axis: PlotCoordinates1D::new(axis_ranges.x.start,
                                            axis_ranges.x.stop),
             y_axis: PlotCoordinates1D::new(axis_ranges.y.start,
                                            axis_ranges.y.stop),
             x_pixels: PixelCoordinates1D::new(size.x),
-            x_supersampling,
             y_pixels: PixelCoordinates1D::new(size.y),
-            traces: Vec::new(),
+            data: Vec::new(),
+            traces: Box::new([]),
         }
     }
 
@@ -119,38 +127,53 @@ impl Plot2D {
     //       replacing constructor with builder
 
     // Add a function trace
+    //
     // TODO: Support non-function plotting
     // TODO: Keep trace options and trace styling apart
-    pub fn add_function_trace(
+    // TODO: Find a nice mechanism for handling options
+    //
+    pub fn add_function(
         &mut self,
         function: impl Fn(XData) -> YData + Send + Sync,
+        x_supersampling: u8,
         line_thickness: FracPixels,
     ) {
-        let y_samples = self.compute_function_samples(function);
-        // TODO: The following steps should be lazy, not eager
-        let line_heights = self.compute_function_line_heights(&y_samples,
-                                                              line_thickness);
-        self.traces.push(FunctionTrace { y_samples, line_heights });
+        assert!(x_supersampling > 0);
+        let y_data = self.compute_function_samples(function, x_supersampling);
+        self.data.push(FunctionData { x_supersampling,
+                                      y_data,
+                                      line_thickness });
+    }
+
+    // Render function traces
+    //
+    // TODO: Should ultimately directly render an image via a graphics API
+    //
+    pub fn render(&mut self) {
+        self.traces = self.data.par_iter()
+                          .map(|data| self.render_function_trace(data))
+                          .collect::<Vec<_>>()
+                          .into_boxed_slice()
     }
 
     // TODO: Consider whether these functions should go away
 
-    // Compute the vertical samples of a function trace. See y_trace member of
-    // the FunctionTrace struct for more info.
+    // Sample a function on plot pixel edges
     fn compute_function_samples(
         &self,
-        function: impl Fn(XData) -> YData + Send + Sync
-    ) -> Box<[YPixels]> {
+        function: impl Fn(XData) -> YData + Send + Sync,
+        x_supersampling: u8
+    ) -> Box<[YData]> {
+        // This function is not meant to be called directly, so can use debug
+        debug_assert!(x_supersampling != 0);
+
         // Build a pixel axis for x subpixels
         let num_x_subpixels =
-            self.x_pixels.num_pixels() * self.x_supersampling as IntCoord;
+            self.x_pixels.num_pixels() * x_supersampling as IntCoord;
         let x_subpixels = PixelCoordinates1D::new(num_x_subpixels);
 
         // Conversion from a sample index to the corresponding x coordinate
         let subpixel_to_x = x_subpixels.to(&self.x_axis);
-
-        // Conversion from a y coordinate to (fractional) vertical pixel
-        let y_to_pixel = self.y_axis.to(&self.y_pixels);
 
         // Generate the function samples. Note that we must generate one more
         // sample than we have subpixels because we want a sample on the
@@ -158,9 +181,31 @@ impl Plot2D {
         (0..num_x_subpixels+1).into_par_iter()
                               .map(|idx| subpixel_to_x.apply(idx as FloatCoord))
                               .map(function)
-                              .map(|y| y_to_pixel.apply(y))
                               .collect::<Vec<_>>()
                               .into_boxed_slice()
+    }
+
+    // Render a function trace from function samples
+    fn render_function_trace(&self, trace: &FunctionData) -> FunctionTrace {
+        // Convert function samples to pixel coordinates
+        let y_to_pixel = self.y_axis.to(&self.y_pixels);
+        let y_positions = trace.y_data.iter()
+                                      .map(|&y| y_to_pixel.apply(y))
+                                      .collect::<Vec<_>>()
+                                      .into_boxed_slice();
+
+        // Compute line heights in the middle of each pixel
+        let line_heights = self.compute_function_line_heights(
+            trace.x_supersampling,
+            &y_positions,
+            trace.line_thickness
+        );
+
+        // TODO: Do the actual rendering instead of merely recording trace data
+        FunctionTrace {
+            y_positions,
+            line_heights,
+        }
     }
 
     // Compute line half-height samples in the middle of each x subpixel.
@@ -175,17 +220,17 @@ impl Plot2D {
     //
     fn compute_function_line_heights(
         &self,
-        samples: &[YPixels],
+        x_supersampling: u8,
+        y_samples: &[YPixels],
         line_thickness: FracPixels
     ) -> Box<[YPixels]> {
         let half_thickness = line_thickness / 2.;
-        let inv_dx2 = (self.x_supersampling as XPixels).powi(2);
-        // TODO: Reconsider parallelization of this iteration
-        samples.par_windows(2)
-               .map(|y_win| y_win[1] - y_win[0])
-               .map(|dy| half_thickness * (1. + dy.powi(2) * inv_dx2).sqrt())
-               .collect::<Vec<_>>()
-               .into_boxed_slice()
+        let inv_dx2 = (x_supersampling as XPixels).powi(2);
+        y_samples.windows(2)
+                 .map(|y_win| y_win[1] - y_win[0])
+                 .map(|dy| half_thickness * (1. + dy.powi(2) * inv_dx2).sqrt())
+                 .collect::<Vec<_>>()
+                 .into_boxed_slice()
     }
 }
 

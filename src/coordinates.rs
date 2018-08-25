@@ -130,6 +130,9 @@ pub struct PlotCoordinates1D {
 //
 impl PlotCoordinates1D {
     /// Build the coordinate system of a plot axis
+    ///
+    /// TODO: Should probably take an AxisRange instead
+    ///
     pub fn new(start: FloatCoord, stop: FloatCoord) -> Self {
         Self {
             transform: CoordinatesTransform1D::affine(stop-start, start),
