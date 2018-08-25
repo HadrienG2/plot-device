@@ -351,8 +351,13 @@ mod tests {
             }
 
             // Check the triangle strip
-            assert_eq!(trace.strip_vertices.len(), 2*trace.y_positions.len());
-            for vx_pair in trace.strip_vertices.chunks(2) {
+            let strip_vertices = &trace.strip_vertices;
+            assert_eq!(strip_vertices.len(), 2*trace.y_positions.len());
+            let mut last_x = float_coord::NEG_INFINITY;
+            assert_eq!(strip_vertices[0].position[0], -1.);
+            for vx_pair in strip_vertices.chunks(2) {
+                assert!(vx_pair[0].position[0] > last_x);
+                last_x = vx_pair[0].position[0];
                 assert_eq!(vx_pair[0].position[0], vx_pair[1].position[0]);
                 assert!(vx_pair[0].position[1] < vx_pair[1].position[1]);
                 for vertex in vx_pair {
@@ -360,8 +365,8 @@ mod tests {
                         assert!((coord >= -1.) && (coord <= 1.));
                     }
                 }
-
             }
+            assert_eq!(strip_vertices[strip_vertices.len()-1].position[0], 1.);
         }
     }
 }
