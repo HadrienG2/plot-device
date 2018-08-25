@@ -352,20 +352,27 @@ mod tests {
 
             // Check the triangle strip
             let strip_vertices = &trace.strip_vertices;
+            // - Two vertices per subpixel edge (top and bottom)
             assert_eq!(strip_vertices.len(), 2*trace.y_positions.len());
-            let mut last_x = float_coord::NEG_INFINITY;
+            // - First vertex is on the left edge of the graph
             assert_eq!(strip_vertices[0].position[0], -1.);
+            // - Vertices go by pairs of identical x coordinates
+            let mut last_x = float_coord::NEG_INFINITY;
             for vx_pair in strip_vertices.chunks(2) {
+                assert_eq!(vx_pair[0].position[0], vx_pair[1].position[0]);
+                // - x coordinate is strictly growing along the strip
                 assert!(vx_pair[0].position[0] > last_x);
                 last_x = vx_pair[0].position[0];
-                assert_eq!(vx_pair[0].position[0], vx_pair[1].position[0]);
+                // - Top vertex goes first, followed by bottom vertex
                 assert!(vx_pair[0].position[1] < vx_pair[1].position[1]);
                 for vertex in vx_pair {
                     for &coord in &vertex.position {
+                        // - Every vertex is inside of the Vulkan viewport
                         assert!((coord >= -1.) && (coord <= 1.));
                     }
                 }
             }
+            // - Last vertex is on the right edge of the graph
             assert_eq!(strip_vertices[strip_vertices.len()-1].position[0], 1.);
         }
     }
