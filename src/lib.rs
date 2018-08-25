@@ -222,7 +222,7 @@ impl Plot2D {
         let interp_heights = interp_heights.into_boxed_slice();
 
         // Prepare coordinate conversions from pixel coordinates to Vulkan ones
-        let num_x_subpixels_us = interp_heights.len();
+        let num_x_subpixels_us = line_heights.len();
         let num_x_subpixels = num_x_subpixels_us as IntPixels;
         let x_subpixels = PixelCoordinates1D::new(num_x_subpixels);
         let x_subpixel_to_vulkan = x_subpixels.to(&VulkanCoordinates1D());
