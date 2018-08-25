@@ -1,7 +1,5 @@
 //! This module is responsible for managing coordinates and coordinate systems
 
-pub use std::f32 as float_coord;
-
 
 /// Standard floating-point coordinate type
 ///
@@ -11,6 +9,9 @@ pub use std::f32 as float_coord;
 /// thousand pixels on each side of the screen.
 ///
 pub type FloatCoord = f32;
+pub mod float_coord {
+    pub use std::f32::*;
+}
 
 /// Standard integer coordinate type
 ///

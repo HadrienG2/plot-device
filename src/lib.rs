@@ -6,7 +6,6 @@ use {
     coordinates::{
         CoordinatesSystem1D,
         FloatCoord,
-        float_coord,
         IntCoord,
         PixelCoordinates1D,
         PlotCoordinates1D,
@@ -21,24 +20,24 @@ use {
 // TODO: Separate plot style from plot data
 
 // Floating-point type used for user data and axis ranges
-type Data = FloatCoord;
-type XData = Data;
-type YData = Data;
+pub type Data = FloatCoord;
+pub type XData = Data;
+pub type YData = Data;
 
 // Floating-point type used for (fractional) pixel coordinates
-type FracPixels = FloatCoord;
-type XPixels = FracPixels;
-type YPixels = FracPixels;
+pub type FracPixels = FloatCoord;
+pub type XPixels = FracPixels;
+pub type YPixels = FracPixels;
 
 // Integer type used for whole numbers of pixels
-type IntPixels = IntCoord;
+pub type IntPixels = IntCoord;
 
 
 // General abstraction for 2D data
 //
 // TODO: Should probably be an nalgebra 2D vector for this
 //
-struct Bidi<T> {
+pub struct Bidi<T> {
     x: T,
     y: T,
 }
@@ -49,7 +48,7 @@ struct Bidi<T> {
 // TODO: Add nonlinear scale support
 // TODO: Check that start != stop
 //
-struct AxisRange {
+pub struct AxisRange {
     start: FloatCoord,
     stop: FloatCoord,
 }
@@ -57,7 +56,7 @@ struct AxisRange {
 
 // Object-oriented plot struct, which collects all plot-wide parameters and
 // provides methods to interact with the plot.
-struct Plot2D {
+pub struct Plot2D {
     // Horizontal and vertical axis coordinates
     // TODO: Support multiple axes and autoscale
     // TODO: Support axis styling
@@ -240,6 +239,7 @@ impl Plot2D {
 #[cfg(test)]
 mod tests {
     use ::*;
+    use coordinates::float_coord;
 
     // TODO: Build better tests later on
     #[test]
