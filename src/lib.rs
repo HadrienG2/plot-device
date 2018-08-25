@@ -44,14 +44,25 @@ pub struct Bidi<T> {
 }
 
 // Range of an axis
-//
-// TODO: Add auto-scale support
-// TODO: Add nonlinear scale support
-// TODO: Check that start != stop
-//
 pub struct AxisRange {
     start: FloatCoord,
     stop: FloatCoord,
+}
+//
+impl AxisRange {
+    // Build an axis range struct
+    pub fn new(start: FloatCoord, stop: FloatCoord) -> Self {
+        assert!(start != stop);
+        Self { start, stop }
+    }
+
+    // Invert this axis range
+    pub fn invert(self) -> Self {
+        Self {
+            start: self.stop,
+            stop: self.start,
+        }
+    }
 }
 
 
@@ -119,8 +130,6 @@ impl Plot2D {
                axis_ranges: Bidi<AxisRange>) -> Self {
         assert!(size.x > 0);
         assert!(size.y > 0);
-        assert!(axis_ranges.x.start != axis_ranges.x.stop);
-        assert!(axis_ranges.y.start != axis_ranges.y.stop);
         Self {
             x_axis: PlotCoordinates1D::new(axis_ranges.x.start,
                                            axis_ranges.x.stop),
@@ -312,8 +321,8 @@ mod tests {
         const HEIGHT: IntPixels = 4320;
         let mut plot =
             Plot2D::new(Bidi { x: WIDTH, y: HEIGHT },
-                        Bidi { x: AxisRange { start: 0., stop: 6.28 },
-                               y: AxisRange { start: -1.2, stop: 1.2 } });
+                        Bidi { x: AxisRange::new(0., 6.28),
+                               y: AxisRange::new(-1.2, 1.2) });
 
         // Add two function traces
         const X_SUPERSAMPLING: u8 = 2;
