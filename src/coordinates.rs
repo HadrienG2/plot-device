@@ -23,6 +23,29 @@ pub mod float_coord {
 pub type IntCoord = u32;
 
 
+// Range of a plot axis
+pub struct AxisRange {
+    start: FloatCoord,
+    stop: FloatCoord,
+}
+//
+impl AxisRange {
+    // Build an axis range struct
+    pub fn new(start: FloatCoord, stop: FloatCoord) -> Self {
+        assert!(start != stop);
+        Self { start, stop }
+    }
+
+    // Invert this axis range
+    pub fn invert(self) -> Self {
+        Self {
+            start: self.stop,
+            stop: self.start,
+        }
+    }
+}
+
+
 /// Coordinate system abstraction
 ///
 /// As a plotting application, we need to manipulate data in multiple coordinate
@@ -133,12 +156,11 @@ pub struct PlotCoordinates1D {
 //
 impl PlotCoordinates1D {
     /// Build the coordinate system of a plot axis
-    ///
-    /// TODO: Should probably take an AxisRange instead
-    ///
-    pub fn new(start: FloatCoord, stop: FloatCoord) -> Self {
+    pub fn new(range: AxisRange) -> Self {
+        let start = range.start;
+        let alg_length = range.stop - range.start;
         Self {
-            transform: CoordinatesTransform1D::affine(stop-start, start),
+            transform: CoordinatesTransform1D::affine(alg_length, start),
         }
     }
 }

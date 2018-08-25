@@ -4,6 +4,7 @@ mod coordinates;
 
 use {
     coordinates::{
+        AxisRange,
         CoordinatesSystem1D,
         FloatCoord,
         IntCoord,
@@ -41,28 +42,6 @@ pub type IntPixels = IntCoord;
 pub struct Bidi<T> {
     x: T,
     y: T,
-}
-
-// Range of an axis
-pub struct AxisRange {
-    start: FloatCoord,
-    stop: FloatCoord,
-}
-//
-impl AxisRange {
-    // Build an axis range struct
-    pub fn new(start: FloatCoord, stop: FloatCoord) -> Self {
-        assert!(start != stop);
-        Self { start, stop }
-    }
-
-    // Invert this axis range
-    pub fn invert(self) -> Self {
-        Self {
-            start: self.stop,
-            stop: self.start,
-        }
-    }
 }
 
 
@@ -131,11 +110,8 @@ impl Plot2D {
         assert!(size.x > 0);
         assert!(size.y > 0);
         Self {
-            x_axis: PlotCoordinates1D::new(axis_ranges.x.start,
-                                           axis_ranges.x.stop),
-            // TODO: Instead of flipping like this, add proper 2D support
-            y_axis: PlotCoordinates1D::new(axis_ranges.y.stop,
-                                           axis_ranges.y.start),
+            x_axis: PlotCoordinates1D::new(axis_ranges.x),
+            y_axis: PlotCoordinates1D::new(axis_ranges.y.invert()),
             x_pixels: PixelCoordinates1D::new(size.x),
             y_pixels: PixelCoordinates1D::new(size.y),
             data: Vec::new(),
