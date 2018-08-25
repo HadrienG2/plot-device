@@ -1,5 +1,7 @@
 //! This module is responsible for managing coordinates and coordinate systems
 
+pub use std::f32 as float_coord;
+
 
 /// Standard floating-point coordinate type
 ///

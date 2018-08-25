@@ -6,6 +6,7 @@ use {
     coordinates::{
         CoordinatesSystem1D,
         FloatCoord,
+        float_coord,
         IntCoord,
         PixelCoordinates1D,
         PlotCoordinates1D,
@@ -83,7 +84,7 @@ struct FunctionData {
     x_supersampling: u8,
 
     // One function sample on LHS of each x subpixel + one on RHS of last pixel
-    y_data: Box<[YData]>,
+    y_samples: Box<[YData]>,
 
     // Desired line thickness in pixels
     // TODO: Add DPI support
@@ -139,9 +140,10 @@ impl Plot2D {
         line_thickness: FracPixels,
     ) {
         assert!(x_supersampling > 0);
-        let y_data = self.compute_function_samples(function, x_supersampling);
+        let y_samples = self.compute_function_samples(function,
+                                                      x_supersampling);
         self.data.push(FunctionData { x_supersampling,
-                                      y_data,
+                                      y_samples,
                                       line_thickness });
     }
 
@@ -150,10 +152,10 @@ impl Plot2D {
     // TODO: Should ultimately directly render an image via a graphics API
     //
     pub fn render(&mut self) {
-        self.traces = self.data.par_iter()
-                          .map(|data| self.render_function_trace(data))
-                          .collect::<Vec<_>>()
-                          .into_boxed_slice()
+        self.traces = self.data.iter()
+                               .map(|data| self.render_function_trace(data))
+                               .collect::<Vec<_>>()
+                               .into_boxed_slice()
     }
 
     // TODO: Consider whether these functions should go away
@@ -189,10 +191,10 @@ impl Plot2D {
     fn render_function_trace(&self, trace: &FunctionData) -> FunctionTrace {
         // Convert function samples to pixel coordinates
         let y_to_pixel = self.y_axis.to(&self.y_pixels);
-        let y_positions = trace.y_data.iter()
-                                      .map(|&y| y_to_pixel.apply(y))
-                                      .collect::<Vec<_>>()
-                                      .into_boxed_slice();
+        let y_positions = trace.y_samples.iter()
+                                         .map(|&y| y_to_pixel.apply(y))
+                                         .collect::<Vec<_>>()
+                                         .into_boxed_slice();
 
         // Compute line heights in the middle of each pixel
         let line_heights = self.compute_function_line_heights(
@@ -243,30 +245,62 @@ mod tests {
     #[test]
     fn it_works() {
         // Graph parameters
+        const WIDTH: IntPixels = 8192;
+        const HEIGHT: IntPixels = 4320;
         let mut plot =
-            Plot2D::new(Bidi { x: 8192, y:4320 },
-                        2,
+            Plot2D::new(Bidi { x: WIDTH, y: HEIGHT },
                         Bidi { x: AxisRange { start: 0., stop: 6.28 },
                                y: AxisRange { start: -1.2, stop: 1.2 } });
 
-        // Add a function trace of width 42 pixels
+        // Add two function traces
+        const X_SUPERSAMPLING: u8 = 2;
         const LINE_THICKNESS: FracPixels = 42.;
-        plot.add_function_trace(|x| x.sin(), LINE_THICKNESS);
+        plot.add_function(|x| x.sin(), X_SUPERSAMPLING, LINE_THICKNESS);
+        plot.add_function(|x| x.cos(), X_SUPERSAMPLING, LINE_THICKNESS);
 
-        // Check some properties of the function samples
-        let samples = &plot.traces[0].y_samples;
-        let num_x_subpixels =
-            plot.x_pixels.num_pixels() * (plot.x_supersampling as IntCoord) + 1;
-        assert_eq!(samples.len(), num_x_subpixels as usize);
+        // Check the recorded function data
+        const X_SUBPIXELS: IntPixels = WIDTH * (X_SUPERSAMPLING as IntPixels);
+        const X_SUBPIXELS_US: usize = X_SUBPIXELS as usize;
+        assert_eq!(plot.data.len(), 2);
+        for data in &plot.data {
+            assert_eq!(data.x_supersampling, X_SUPERSAMPLING);
+            assert_eq!(data.y_samples.len(), X_SUBPIXELS_US + 1);
+            assert_eq!(data.line_thickness, LINE_THICKNESS);
+        }
+        for sample_idx in 0..=X_SUBPIXELS_US {
+            let mut y_samples = [0.; 2];
+            for trace in 0..2 {
+                let y_sample = plot.data[trace].y_samples[sample_idx];
+                assert!(y_sample >= -1. && y_sample <= 1.);
+                y_samples[trace] = y_sample;
+            }
+            let sum_squares = y_samples[0].powi(2) + y_samples[1].powi(2);
+            assert!((sum_squares - 1.).abs() < 2.*float_coord::EPSILON);
+        }
+
+        // Render the function traces
+        plot.render();
+
+        // Prepare to check the traces
         let y_to_pixel = plot.y_axis.to(&plot.y_pixels);
-        samples.iter().for_each(|s| {
-            assert!(*s >= y_to_pixel.apply(-1.));
-            assert!(*s <= y_to_pixel.apply(1.));
-        });
+        let minus_one_pixel = y_to_pixel.apply(-1.);
+        let plus_one_pixel = y_to_pixel.apply(1.);
 
-        // Check some properties of the line height
-        let heights = &plot.traces[0].line_heights;
-        assert_eq!(heights.len(), samples.len() - 1);
-        heights.iter().for_each(|h| assert!(*h >= LINE_THICKNESS / 2.));
+        // Check the recorded function traces
+        assert_eq!(plot.traces.len(), 2);
+        for trace in &plot.traces[..] {
+            // Check the position samples
+            assert_eq!(trace.y_positions.len(), X_SUBPIXELS_US + 1);
+            for &y_pixel in &trace.y_positions[..] {
+                assert!(y_pixel >= minus_one_pixel);
+                assert!(y_pixel <= plus_one_pixel);
+            }
+
+            // Check the line heights
+            assert_eq!(trace.line_heights.len(), X_SUBPIXELS_US);
+            for &height in &trace.line_heights[..] {
+                assert!(height >= LINE_THICKNESS / 2.);
+            }
+        }
     }
 }
