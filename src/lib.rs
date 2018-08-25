@@ -148,10 +148,16 @@ impl Plot2D {
     // TODO: Should ultimately directly render an image via a graphics API
     //
     pub fn render(&mut self) {
+        // TODO: For now we keep the full trace data around, later we'll just
+        //       drop it at the end.
         self.traces = self.data.iter()
                                .map(|data| self.render_function_trace(data))
                                .collect::<Vec<_>>()
                                .into_boxed_slice()
+
+        // TODO: Do the drawing. For the initial prototype, it's okay to fully
+        //       initialize Vulkan here, later we'll want to work from an
+        //       existing Vulkan context.
     }
 
     // Sample a function on plot pixel edges
