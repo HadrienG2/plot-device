@@ -97,8 +97,6 @@ impl Context {
 }
 
 
-// === DEVICE AND QUEUE SELECTION CRITERIA ===
-
 // Tells whether we can use a certain physical device or not
 fn device_filter(_dev: PhysicalDevice) -> bool {
     // We need no filtering above vulkanoob's default one at this point in time
