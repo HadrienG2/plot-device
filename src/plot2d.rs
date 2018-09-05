@@ -613,7 +613,9 @@ mod tests {
                                      .build()?;
 
         // The rest is business as usual: run the computation...
-        // TODO: Do not forcefully synchronize, let the user choose?
+        // TODO: Do not forcefully synchronize, let the user choose? Or maybe
+        //       provide a batch interface, so that image creation can be
+        //       encapsulated?
         command_buffer.execute_after(vx_future, queue.clone())?
                       .then_signal_fence_and_flush()?
                       .wait(None)?;
