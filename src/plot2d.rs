@@ -308,6 +308,7 @@ gl_Position = vec4(position, 0.0, 1.0);
 }
 
 /// Fragment shader used for 2D plots
+/// TODO: Let the user pick the draw color using push constants
 mod fragment_shader {
     #![allow(unused)]
     #[derive(VulkanoShader)]
