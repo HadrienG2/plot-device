@@ -4,6 +4,7 @@ use ::{
     Bidi,
     FracPixels,
     IntPixels,
+    context::CommonContext,
     coordinates::{
         AxisRange,
         CoordinatesSystem1D,
@@ -19,7 +20,21 @@ use ::{
     YPixels,
 };
 
+use failure;
+
 use rayon::prelude::*;
+
+use std::sync::Arc;
+
+use vulkano::{
+    descriptor::PipelineLayoutAbstract,
+    format::Format,
+    framebuffer::{RenderPassAbstract, Subpass},
+    pipeline::{
+        GraphicsPipeline,
+        vertex::SingleBufferDefinition,
+    },
+};
 
 use vulkanoob::Result;
 
@@ -275,11 +290,118 @@ impl Plot2D {
 }
 
 
+/// Vertex shader used for 2D plots
+mod vertex_shader {
+    #![allow(unused)]
+    #[derive(VulkanoShader)]
+    #[ty = "vertex"]
+    #[src = "
+#version 460
+
+layout(location = 0) in vec2 position;
+
+void main() {
+gl_Position = vec4(position, 0.0, 1.0);
+}
+    "]
+    struct _Dummy;
+}
+
+/// Fragment shader used for 2D plots
+mod fragment_shader {
+    #![allow(unused)]
+    #[derive(VulkanoShader)]
+    #[ty = "fragment"]
+    #[src = "
+#version 460
+
+layout(location = 0) out vec4 f_color;
+
+void main() {
+f_color = vec4(1.0, 0.5, 0.0, 1.0);
+}
+    "]
+    struct _Dummy;
+}
+
+// Long-lived Vulkan context associated with Plot2D
+pub(crate) struct Context {
+    // Reference to the common Vulkan context shared by all plot types
+    common: Arc<CommonContext>,
+
+    // Render pass describing rendering targets
+    render_pass: Arc<RenderPassAbstract + Send + Sync>,
+
+    // Graphics pipeline description
+    pipeline: Arc<GraphicsPipeline<SingleBufferDefinition<Vertex>,
+                                   Box<PipelineLayoutAbstract + Send + Sync>,
+                                   Arc<RenderPassAbstract + Send + Sync>>>,
+}
+//
+impl Context {
+    /// Build the Plot2D-specific context
+    pub(crate) fn new(common_context: Arc<CommonContext>) -> Result<Self> {
+        // Load the vertex shader and fragment shader
+        let device = common_context.device.clone();
+        let vs = vertex_shader::Shader::load(device.clone())?;
+        let fs = fragment_shader::Shader::load(device.clone())?;
+
+        // Build the render pass
+        let render_pass: Arc<RenderPassAbstract + Send + Sync> = Arc::new(
+            single_pass_renderpass!(
+                device.clone(),
+                attachments: {
+                    color: {
+                        load: Clear,
+                        store: Store,
+                        format: Format::R8G8B8A8Unorm,
+                        samples: 1,
+                    }
+                },
+                pass: {
+                    color: [color],
+                    depth_stencil: {}
+                }
+            )?
+        );
+
+        // Build the graphics pipeline
+        let pipeline = Arc::new(
+            GraphicsPipeline::start()
+                             // - We have only one source of vertex inputs
+                             .vertex_input_single_buffer::<Vertex>()
+                             // - We use a triangle strip
+                             .triangle_strip()
+                             // - This is our vertex shader
+                             .vertex_shader(vs.main_entry_point(), ())
+                             // - This sets up the target image region
+                             .viewports_dynamic_scissors_irrelevant(1)
+                             // - This is our fragment shader
+                             .fragment_shader(fs.main_entry_point(), ())
+                             // - The pipeline is used in this render pass
+                             .render_pass(
+                                Subpass::from(render_pass.clone(), 0)
+                                        .ok_or(failure::err_msg("Bad subpass"))?
+                             )
+                             // - Here is the target device: build the pipeline!
+                             .build(device.clone())?
+        );
+
+        // Return the 2D plotting context
+        Ok(Self {
+            common: common_context,
+            render_pass,
+            pipeline,
+        })
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ::{
-        context::Context,
+        context,
         coordinates::float_coord,
     };
 
@@ -303,21 +425,15 @@ mod tests {
             CommandBuffer,
             DynamicState,
         },
-        device::{
-            Device,
-            Queue,
-        },
         format::Format,
         framebuffer::{
             Framebuffer,
-            Subpass,
         },
         image::{
             AttachmentImage,
             ImageUsage,
         },
         pipeline::{
-            GraphicsPipeline,
             viewport::Viewport,
         },
         sync::GpuFuture,
@@ -415,18 +531,20 @@ mod tests {
             // ===== EVERYTHING FROM THIS POINT IS A HUGE HACK =====
 
             // Set up a Vulkan context
-            let context = Context::new().unwrap();
+            let context = context::Context::new().unwrap();
 
             // Draw!
-            draw_trace(&context.device, &context.queue, &trace.strip_vertices).unwrap();
+            draw_trace(&context.plot2d, &trace.strip_vertices).unwrap();
         }
     }
 
-    /// Let's draw a triangle. How hard could that get?
-    fn draw_trace(device: &Arc<Device>,
-                             queue: &Arc<Queue>,
-                             vertices: &[Vertex]) -> Result<()> {
-        // Let's store them in a buffer
+    /// Let's draw a plot. How hard could that get?
+    fn draw_trace(context: &Context, vertices: &[Vertex]) -> Result<()> {
+        // Retrieve quick access to the Vulkan device and command queue
+        let device = context.common.device.clone();
+        let queue = context.common.queue.clone();
+
+        // Transfer plot vertices into a buffer
         let (vx_buf, vx_future) =
             ImmutableBuffer::from_iter(vertices.iter().cloned(),
                                        BufferUsage {
@@ -435,85 +553,8 @@ mod tests {
                                        },
                                        queue.clone())?;
 
-        // We will process them using the following vertex shader...
-        #[allow(unused)]
-        mod vs {
-            #[derive(VulkanoShader)]
-            #[ty = "vertex"]
-            #[src = "
-    #version 460
-
-    layout(location = 0) in vec2 position;
-
-    void main() {
-        gl_Position = vec4(position, 0.0, 1.0);
-    }
-            "]
-            struct Dummy;
-        }
-        let vs = vs::Shader::load(device.clone())?;
-
-        // ...and the following fragment shader
-        #[allow(unused)]
-        mod fs {
-            #[derive(VulkanoShader)]
-            #[ty = "fragment"]
-            #[src = "
-    #version 460
-
-    layout(location = 0) out vec4 f_color;
-
-    void main() {
-        f_color = vec4(1.0, 0.5, 0.0, 1.0);
-    }
-            "]
-            struct Dummy;
-        }
-        let fs = fs::Shader::load(device.clone())?;
-
-        // Vulkan wants to know more about our rendering intents, via a "renderpass"
-        let render_pass = Arc::new(
-            single_pass_renderpass!(
-                device.clone(),
-                attachments: {
-                    color: {
-                        load: Clear,
-                        store: Store,
-                        format: Format::R8G8B8A8Unorm,
-                        samples: 1,
-                    }
-                },
-                pass: {
-                    color: [color],
-                    depth_stencil: {}
-                }
-            )?
-        );
-
-
-        // We bring these together in a single graphics pipeline
-        let pipeline = Arc::new(
-            GraphicsPipeline::start()
-                             // - We have only one source of vertex inputs
-                             .vertex_input_single_buffer::<Vertex>()
-                             // - We use a triangle strip
-                             .triangle_strip()
-                             // - This is our vertex shader
-                             .vertex_shader(vs.main_entry_point(), ())
-                             // - This sets up the target image region (viewport)
-                             .viewports_dynamic_scissors_irrelevant(1)
-                             // - This is our fragment shader
-                             .fragment_shader(fs.main_entry_point(), ())
-                             // - The pipeline is used in this render pass
-                             .render_pass(
-                                Subpass::from(render_pass.clone(), 0)
-                                        .ok_or(failure::err_msg("No such subpass"))?
-                             )
-                             // - Here is the target device, now build the pipeline!
-                             .build(device.clone())?
-        );
-
-        // This is the image which we will eventually write into
+        // Prepare the target image
+        // TODO: Remove hardcoded dimensions
         let image =
             AttachmentImage::with_usage(device.clone(),
                                         [8192, 4320],
@@ -524,23 +565,15 @@ mod tests {
                                            .. ImageUsage::none()
                                         })?;
 
-        // Create a buffer to copy the final image contents in
-        let buf =
-            CpuAccessibleBuffer::from_iter(device.clone(),
-                                           BufferUsage {
-                                              transfer_destination: true,
-                                              .. BufferUsage::none()
-                                           },
-                                           (0 .. 8192 * 4320 *4).map(|_| 0u8))?;
-
-        // A renderpass must be attached to its drawing target(s) via a framebuffer
+        // Attach this image to the render pass using a framebuffer
         let framebuffer = Arc::new(
-            Framebuffer::start(render_pass.clone())
+            Framebuffer::start(context.render_pass.clone())
                         .add(image.clone())?
                         .build()?
         );
 
-        // And now, all we need is a viewport...
+        // Define the viewport transform, now that we know the target image dims
+        // TODO: Remove hardcoded dimensions
         let dynamic_state = DynamicState {
             viewports: Some(vec![Viewport {
                 origin: [0.0, 0.0],
@@ -550,7 +583,18 @@ mod tests {
             .. DynamicState::none()
         };
 
+        // Create a buffer to copy the final image contents in
+        // TODO: Remove hardcoded dimensions
+        let buf =
+            CpuAccessibleBuffer::from_iter(device.clone(),
+                                           BufferUsage {
+                                              transfer_destination: true,
+                                              .. BufferUsage::none()
+                                           },
+                                           (0 .. 8192 * 4320 *4).map(|_| 0u8))?;
+
         // ...and we are ready to build our command buffer
+        // TODO: Remove hardcoded clear value
         let clear_values = vec![[0.0, 0.2, 0.8, 1.0].into()];
         let command_buffer =
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(),
@@ -558,7 +602,7 @@ mod tests {
                                      .begin_render_pass(framebuffer.clone(),
                                                         false,
                                                         clear_values)?
-                                     .draw(pipeline.clone(),
+                                     .draw(context.pipeline.clone(),
                                            &dynamic_state,
                                            vx_buf.clone(),
                                            (),
@@ -569,11 +613,15 @@ mod tests {
                                      .build()?;
 
         // The rest is business as usual: run the computation...
+        // TODO: Do not forcefully synchronize, let the user choose?
         command_buffer.execute_after(vx_future, queue.clone())?
                       .then_signal_fence_and_flush()?
                       .wait(None)?;
 
         // ...and save it to disk. Phew!
+        // TODO: Remove hardcoded dimensions
+        // TODO: Remove hardcoded file name
+        // TODO: Do not save to file out of principle
         let content = buf.read()?;
         Ok(ImageBuffer::<Rgba<u8>, _>::from_raw(8192,
                                                 4320,

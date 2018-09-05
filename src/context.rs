@@ -1,6 +1,8 @@
 //! Long-lived API context object, which caches work that does not need to be
 //! re-done every time a plot is drawn.
 
+use ::plot2d;
+
 use failure;
 
 use std::{
@@ -28,6 +30,32 @@ use vulkanoob::{
 
 /// Persistent Vulkan setup, shared across plots
 pub struct Context {
+    // Context elements which are used by the plot2d module
+    pub(crate) plot2d: plot2d::Context,
+}
+//
+impl Context {
+    // Setup the Vulkan context
+    //
+    // TODO: Make this more customizable
+    //
+    pub fn new() -> Result<Self> {
+        // Build the common part of the Vulkan context
+        let common_context = Arc::new(CommonContext::new()?);
+
+        // Build plot-specific context objects
+        let result = Self {
+            plot2d: plot2d::Context::new(common_context)?,
+        };
+
+        // Return the context object
+        Ok(result)
+    }
+}
+
+
+/// Parts of the Vulkan context which are shared by all plot types
+pub(crate) struct CommonContext {
     // A vulkano instance with some goodies, see the vulkanoob docs for more
     //
     // TODO: Move away from vulkanoob
@@ -42,11 +70,9 @@ pub struct Context {
     // TODO: Study multi-queue workflows
     //
     pub(crate) queue: Arc<Queue>,
-
-    // TODO: Add Plot2D-specific context (shaders, render passes, etc)
 }
 //
-impl Context {
+impl CommonContext {
     // Setup the Vulkan context
     //
     // TODO: Make this more customizable
