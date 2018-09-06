@@ -22,18 +22,25 @@ use ::{
 
 use failure;
 
+use image::{ImageBuffer, Rgba};
+
 use rayon::prelude::*;
 
 use std::sync::Arc;
 
 use vulkano::{
+    buffer::{BufferUsage, CpuAccessibleBuffer, ImmutableBuffer},
+    command_buffer::{AutoCommandBufferBuilder, CommandBuffer, DynamicState},
     descriptor::PipelineLayoutAbstract,
     format::Format,
-    framebuffer::{RenderPassAbstract, Subpass},
+    framebuffer::{Framebuffer, RenderPassAbstract, Subpass},
+    image::{AttachmentImage, ImageUsage},
     pipeline::{
         GraphicsPipeline,
         vertex::SingleBufferDefinition,
+        viewport::Viewport,
     },
+    sync::GpuFuture,
 };
 
 use vulkanoob::Result;
@@ -154,18 +161,109 @@ impl<'a> Plot2D<'a> {
     //
     // TODO: Should ultimately directly render an image via a graphics API
     //
-    pub fn render(&mut self) {
+    pub fn render(&mut self) -> Result<()> {
         // TODO: For now we keep the full trace data around, later we'll just
         //       drop it at the end and only return the final image.
         // TODO: Think about how testing should be redesigned to account for it.
         self.traces = self.data.iter()
                                .map(|data| self.render_function_trace(data))
                                .collect::<Vec<_>>()
-                               .into_boxed_slice()
+                               .into_boxed_slice();
 
-        // TODO: Do the drawing. For the initial prototype, it's okay to fully
-        //       initialize Vulkan here, later we'll want to work from an
-        //       existing Vulkan context.
+        // Draw the traces one by one
+        // FIXME: Should put them all on a single plot instead
+        self.traces.par_iter().enumerate().map(|(idx, trace)| {
+            // Get quick access to the Vulkan device and command queue
+            let device = self.context.common.device.clone();
+            let queue = self.context.common.queue.clone();
+
+            // Shorthand for the image properties
+            let width = self.x_pixels.num_pixels();
+            let height = self.y_pixels.num_pixels();
+
+            // Transfer plot vertices into a buffer
+            let (vx_buf, vx_future) =
+                ImmutableBuffer::from_iter(trace.strip_vertices.iter().cloned(),
+                                           BufferUsage {
+                                               vertex_buffer: true,
+                                               .. BufferUsage::none()
+                                           },
+                                           queue.clone())?;
+
+            // Prepare the target image
+            let image =
+                AttachmentImage::with_usage(device.clone(),
+                                            [width, height],
+                                            Format::R8G8B8A8Unorm,
+                                            ImageUsage {
+                                               transfer_source: true,
+                                               color_attachment: true,
+                                               .. ImageUsage::none()
+                                            })?;
+
+            // Attach this image to the render pass using a framebuffer
+            let framebuffer = Arc::new(
+                Framebuffer::start(self.context.render_pass.clone())
+                            .add(image.clone())?
+                            .build()?
+            );
+
+            // Define the viewport transform, now that we know the target image dims
+            let dynamic_state = DynamicState {
+                viewports: Some(vec![Viewport {
+                    origin: [0.0, 0.0],
+                    dimensions: [width as f32, height as f32],
+                    depth_range: 0.0 .. 1.0,
+                }]),
+                .. DynamicState::none()
+            };
+
+            // Create a buffer to copy the final image contents in
+            let buf_size = width * height * 4;
+            let buf =
+                CpuAccessibleBuffer::from_iter(device.clone(),
+                                               BufferUsage {
+                                                  transfer_destination: true,
+                                                  .. BufferUsage::none()
+                                               },
+                                               (0 .. buf_size).map(|_| 0u8))?;
+
+            // ...and we are ready to build our command buffer
+            // TODO: Remove hardcoded clear value and trace color
+            let clear_values = vec![[0.0, 0.2, 0.8, 1.0].into()];
+            let command_buffer =
+                AutoCommandBufferBuilder::primary_one_time_submit(device.clone(),
+                                                                  queue.family())?
+                                         .begin_render_pass(framebuffer.clone(),
+                                                            false,
+                                                            clear_values)?
+                                         .draw(self.context.pipeline.clone(),
+                                               &dynamic_state,
+                                               vx_buf.clone(),
+                                               (),
+                                               ())?
+                                         .end_render_pass()?
+                                         .copy_image_to_buffer(image.clone(),
+                                                               buf.clone())?
+                                         .build()?;
+
+            // The rest is business as usual: run the computation...
+            // TODO: Do not forcefully synchronize, let the user choose? Or maybe
+            //       provide a batch interface, so that image creation can be
+            //       encapsulated?
+            command_buffer.execute_after(vx_future, queue.clone())?
+                          .then_signal_fence_and_flush()?
+                          .wait(None)?;
+
+            // ...and build an image from it. Phew!
+            // TODO: Remove hard-coded file-saving routine
+            let content = buf.read()?;
+            let image =
+                ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, content)
+                            .ok_or(failure::err_msg("Unexpected buffer size"))?;
+            image.save(format!("trace{}.png", idx))?;
+            Ok(())
+        }).reduce(|| Ok(()), |r1, r2| r1.and(r2))
     }
 
     // Sample a function on plot pixel edges
@@ -217,7 +315,7 @@ impl<'a> Plot2D<'a> {
             &line_heights
         );
 
-        // TODO: Do the actual rendering instead of merely recording trace data
+        // Transmit the traces to the caller
         FunctionTrace {
             y_positions,
             line_heights,
@@ -414,39 +512,7 @@ mod tests {
         coordinates::float_coord,
     };
 
-    // HACK HACK HACK
     use env_logger;
-
-    use failure;
-
-    use image::RgbaImage;
-
-    use std::sync::Arc;
-
-    use vulkano::{
-        buffer::{
-            BufferUsage,
-            CpuAccessibleBuffer,
-            ImmutableBuffer,
-        },
-        command_buffer::{
-            AutoCommandBufferBuilder,
-            CommandBuffer,
-            DynamicState,
-        },
-        format::Format,
-        framebuffer::{
-            Framebuffer,
-        },
-        image::{
-            AttachmentImage,
-            ImageUsage,
-        },
-        pipeline::{
-            viewport::Viewport,
-        },
-        sync::GpuFuture,
-    };
 
     // TODO: Build better tests later on
     #[test]
@@ -493,7 +559,7 @@ mod tests {
         }
 
         // Render the function traces
-        plot.render();
+        plot.render().unwrap();
 
         // Prepare to check the traces
         let y_to_pixel = plot.y_axis.to(&plot.y_pixels);
@@ -502,7 +568,7 @@ mod tests {
 
         // Check the recorded function traces
         assert_eq!(plot.traces.len(), 2);
-        for (idx, trace) in plot.traces.iter().enumerate() {
+        for trace in &plot.traces[..] {
             // Check the position samples
             assert_eq!(trace.y_positions.len(), X_SUBPIXELS_US + 1);
             for &y_pixel in &trace.y_positions[..] {
@@ -540,106 +606,8 @@ mod tests {
             }
             // - Last vertex is on the right edge of the graph
             assert_eq!(strip_vertices[strip_vertices.len()-1].position[0], 1.);
-
-            // ===== EVERYTHING FROM THIS POINT IS A HUGE HACK =====
-
-            // Draw the trace
-            let image = draw_trace(&plot.context,
-                                   &trace.strip_vertices).unwrap();
-
-            // Save it for manual examination
-            image.save(format!("trace{}.png", idx)).unwrap();
         }
-    }
 
-    /// Let's draw a plot. How hard could that get?
-    fn draw_trace(context: &Context, vertices: &[Vertex]) -> Result<RgbaImage> {
-        // Retrieve quick access to the Vulkan device and command queue
-        let device = context.common.device.clone();
-        let queue = context.common.queue.clone();
-
-        // Transfer plot vertices into a buffer
-        let (vx_buf, vx_future) =
-            ImmutableBuffer::from_iter(vertices.iter().cloned(),
-                                       BufferUsage {
-                                           vertex_buffer: true,
-                                           .. BufferUsage::none()
-                                       },
-                                       queue.clone())?;
-
-        // Prepare the target image
-        // TODO: Remove hardcoded dimensions
-        let image =
-            AttachmentImage::with_usage(device.clone(),
-                                        [8192, 4320],
-                                        Format::R8G8B8A8Unorm,
-                                        ImageUsage {
-                                           transfer_source: true,
-                                           color_attachment: true,
-                                           .. ImageUsage::none()
-                                        })?;
-
-        // Attach this image to the render pass using a framebuffer
-        let framebuffer = Arc::new(
-            Framebuffer::start(context.render_pass.clone())
-                        .add(image.clone())?
-                        .build()?
-        );
-
-        // Define the viewport transform, now that we know the target image dims
-        // TODO: Remove hardcoded dimensions
-        let dynamic_state = DynamicState {
-            viewports: Some(vec![Viewport {
-                origin: [0.0, 0.0],
-                dimensions: [8192.0, 4320.0],
-                depth_range: 0.0 .. 1.0,
-            }]),
-            .. DynamicState::none()
-        };
-
-        // Create a buffer to copy the final image contents in
-        // TODO: Remove hardcoded dimensions
-        let buf =
-            CpuAccessibleBuffer::from_iter(device.clone(),
-                                           BufferUsage {
-                                              transfer_destination: true,
-                                              .. BufferUsage::none()
-                                           },
-                                           (0 .. 8192 * 4320 *4).map(|_| 0u8))?;
-
-        // ...and we are ready to build our command buffer
-        // TODO: Remove hardcoded clear value
-        let clear_values = vec![[0.0, 0.2, 0.8, 1.0].into()];
-        let command_buffer =
-            AutoCommandBufferBuilder::primary_one_time_submit(device.clone(),
-                                                              queue.family())?
-                                     .begin_render_pass(framebuffer.clone(),
-                                                        false,
-                                                        clear_values)?
-                                     .draw(context.pipeline.clone(),
-                                           &dynamic_state,
-                                           vx_buf.clone(),
-                                           (),
-                                           ())?
-                                     .end_render_pass()?
-                                     .copy_image_to_buffer(image.clone(),
-                                                           buf.clone())?
-                                     .build()?;
-
-        // The rest is business as usual: run the computation...
-        // TODO: Do not forcefully synchronize, let the user choose? Or maybe
-        //       provide a batch interface, so that image creation can be
-        //       encapsulated?
-        command_buffer.execute_after(vx_future, queue.clone())?
-                      .then_signal_fence_and_flush()?
-                      .wait(None)?;
-
-        // ...and build an image from it. Phew!
-        // TODO: Remove hardcoded dimensions
-        // TODO: Can the memcpy that occurs when the CpuAccessibleBuffer is
-        //       turned into a Vec be avoided?
-        let content = buf.read()?.to_owned();
-        RgbaImage::from_raw(8192, 4320, content)
-                  .ok_or(failure::err_msg("Buffer and image size don't match"))
+        // TODO: Test the actual rendering
     }
 }
