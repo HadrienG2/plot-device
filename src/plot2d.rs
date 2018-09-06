@@ -156,7 +156,8 @@ impl<'a> Plot2D<'a> {
     //
     pub fn render(&mut self) {
         // TODO: For now we keep the full trace data around, later we'll just
-        //       drop it at the end.
+        //       drop it at the end and only return the final image.
+        // TODO: Think about how testing should be redesigned to account for it.
         self.traces = self.data.iter()
                                .map(|data| self.render_function_trace(data))
                                .collect::<Vec<_>>()
@@ -418,7 +419,7 @@ mod tests {
 
     use failure;
 
-    use image::{ImageBuffer, Rgba};
+    use image::RgbaImage;
 
     use std::sync::Arc;
 
@@ -501,7 +502,7 @@ mod tests {
 
         // Check the recorded function traces
         assert_eq!(plot.traces.len(), 2);
-        for trace in &plot.traces[..] {
+        for (idx, trace) in plot.traces.iter().enumerate() {
             // Check the position samples
             assert_eq!(trace.y_positions.len(), X_SUBPIXELS_US + 1);
             for &y_pixel in &trace.y_positions[..] {
@@ -542,13 +543,17 @@ mod tests {
 
             // ===== EVERYTHING FROM THIS POINT IS A HUGE HACK =====
 
-            // Draw!
-            draw_trace(&context.plot2d, &trace.strip_vertices).unwrap();
+            // Draw the trace
+            let image = draw_trace(&plot.context,
+                                   &trace.strip_vertices).unwrap();
+
+            // Save it for manual examination
+            image.save(format!("trace{}.png", idx)).unwrap();
         }
     }
 
     /// Let's draw a plot. How hard could that get?
-    fn draw_trace(context: &Context, vertices: &[Vertex]) -> Result<()> {
+    fn draw_trace(context: &Context, vertices: &[Vertex]) -> Result<RgbaImage> {
         // Retrieve quick access to the Vulkan device and command queue
         let device = context.common.device.clone();
         let queue = context.common.queue.clone();
@@ -629,15 +634,12 @@ mod tests {
                       .then_signal_fence_and_flush()?
                       .wait(None)?;
 
-        // ...and save it to disk. Phew!
+        // ...and build an image from it. Phew!
         // TODO: Remove hardcoded dimensions
-        // TODO: Remove hardcoded file name
-        // TODO: Do not save to file out of principle
-        let content = buf.read()?;
-        Ok(ImageBuffer::<Rgba<u8>, _>::from_raw(8192,
-                                                4320,
-                                                &content[..])
-                       .ok_or(failure::err_msg("Container is not big enough"))?
-                       .save("mighty_triangle.png")?)
+        // TODO: Can the memcpy that occurs when the CpuAccessibleBuffer is
+        //       turned into a Vec be avoided?
+        let content = buf.read()?.to_owned();
+        RgbaImage::from_raw(8192, 4320, content)
+                  .ok_or(failure::err_msg("Buffer and image size don't match"))
     }
 }
