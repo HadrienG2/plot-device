@@ -271,8 +271,8 @@ impl Plot2D {
         let num_x_subpixels_us = line_heights.len();
         let num_x_subpixels = num_x_subpixels_us as IntPixels;
         let x_subpixels = PixelCoordinates1D::new(num_x_subpixels);
-        let x_subpixel_to_vulkan = x_subpixels.to(&VulkanCoordinates1D());
-        let y_pixel_to_vulkan = self.y_pixels.to(&VulkanCoordinates1D());
+        let x_subpixel_to_vulkan = x_subpixels.to(&VulkanCoordinates1D);
+        let y_pixel_to_vulkan = self.y_pixels.to(&VulkanCoordinates1D);
 
         // Compute the final triangle strip
         let mut strip_vertices = Vec::with_capacity(2 * num_x_subpixels_us);

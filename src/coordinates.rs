@@ -202,7 +202,7 @@ impl CoordinatesSystem1D for PixelCoordinates1D {
 
 /// Vulkan's coordinate system, used for vertex positions
 #[derive(Default)]
-pub struct VulkanCoordinates1D();
+pub struct VulkanCoordinates1D;
 //
 impl CoordinatesSystem1D for VulkanCoordinates1D {
     fn from_normalized(&self) -> CoordinatesTransform1D {
