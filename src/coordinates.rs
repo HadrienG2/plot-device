@@ -1,5 +1,7 @@
 //! This module is responsible for managing coordinates and coordinate systems
 
+use vulkanoob::Result;
+
 
 /// Standard floating-point coordinate type
 ///
@@ -31,9 +33,9 @@ pub struct AxisRange {
 //
 impl AxisRange {
     // Build an axis range struct
-    pub fn new(start: FloatCoord, stop: FloatCoord) -> Self {
-        assert!(start != stop);
-        Self { start, stop }
+    pub fn new(start: FloatCoord, stop: FloatCoord) -> Result<Self> {
+        ensure!(start != stop, "Can't build a singleton axis range");
+        Ok(Self { start, stop })
     }
 
     // Invert this axis range
