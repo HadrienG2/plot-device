@@ -170,17 +170,27 @@ impl<'a> Plot2D<'a> {
                                .collect::<Vec<_>>()
                                .into_boxed_slice();
 
+        // Get quick access to the Vulkan device and command queue
+        let device = self.context.common.device.clone();
+        let queue = self.context.common.queue.clone();
+
+        // Shorthand for the output image properties
+        let width = self.x_pixels.num_pixels();
+        let height = self.y_pixels.num_pixels();
+
+        // Define the viewport transform, now that we know the target image dims
+        let dynamic_state = DynamicState {
+            viewports: Some(vec![Viewport {
+                origin: [0.0, 0.0],
+                dimensions: [width as f32, height as f32],
+                depth_range: 0.0 .. 1.0,
+            }]),
+            .. DynamicState::none()
+        };
+
         // Draw the traces one by one
         // FIXME: Should put them all on a single plot instead
         self.traces.par_iter().enumerate().map(|(idx, trace)| {
-            // Get quick access to the Vulkan device and command queue
-            let device = self.context.common.device.clone();
-            let queue = self.context.common.queue.clone();
-
-            // Shorthand for the image properties
-            let width = self.x_pixels.num_pixels();
-            let height = self.y_pixels.num_pixels();
-
             // Transfer plot vertices into a buffer
             let (vx_buf, vx_future) =
                 ImmutableBuffer::from_iter(trace.strip_vertices.iter().cloned(),
@@ -207,16 +217,6 @@ impl<'a> Plot2D<'a> {
                             .add(image.clone())?
                             .build()?
             );
-
-            // Define the viewport transform, now that we know the target image dims
-            let dynamic_state = DynamicState {
-                viewports: Some(vec![Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [width as f32, height as f32],
-                    depth_range: 0.0 .. 1.0,
-                }]),
-                .. DynamicState::none()
-            };
 
             // Create a buffer to copy the final image contents in
             let buf_size = width * height * 4;
