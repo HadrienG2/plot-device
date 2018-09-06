@@ -35,6 +35,12 @@ use vulkanoob::{
 
 /// Persistent Vulkan setup, shared across plots
 pub struct Context {
+    // A vulkano instance with some goodies, see the vulkanoob docs for more
+    //
+    // TODO: Move away from vulkanoob
+    //
+    _instance: EasyInstance,
+
     /// Context elements which are used by the plot2d module
     pub(crate) plot2d: plot2d::Context,
 }
@@ -46,10 +52,12 @@ impl Context {
     ///
     pub fn new() -> Result<Self> {
         // Build the common part of the Vulkan context
-        let common_context = Arc::new(CommonContext::new()?);
+        let (instance, common_context) = CommonContext::new()?;
+        let common_context = Arc::new(common_context);
 
         // Build plot-specific context objects
         let result = Self {
+            _instance: instance,
             plot2d: plot2d::Context::new(common_context)?,
         };
 
@@ -70,12 +78,6 @@ impl Context {
 
 /// Parts of the Vulkan context which are shared by all plot types
 pub(crate) struct CommonContext {
-    // A vulkano instance with some goodies, see the vulkanoob docs for more
-    //
-    // TODO: Move away from vulkanoob
-    //
-    _instance: EasyInstance,
-
     // Handle to the Vulkan device in use
     pub(crate) device: Arc<Device>,
 
@@ -91,7 +93,7 @@ impl CommonContext {
     //
     // TODO: Make this more customizable
     //
-    pub fn new() -> Result<Self> {
+    fn new() -> Result<(EasyInstance, Self)> {
         // Set up a Vulkan instance
         let instance = EasyInstance::new(
             Some(&app_info_from_cargo_toml!()),
@@ -128,11 +130,7 @@ impl CommonContext {
         };
 
         // Return the context object
-        Ok(Self {
-            _instance: instance,
-            device,
-            queue,
-        })
+        Ok((instance, Self { device, queue }))
     }
 }
 
