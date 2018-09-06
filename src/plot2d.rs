@@ -40,6 +40,7 @@ use vulkano::{
         vertex::SingleBufferDefinition,
         viewport::Viewport,
     },
+    self,
     sync::GpuFuture,
 };
 
@@ -174,6 +175,23 @@ impl<'a> Plot2D<'a> {
         let device = self.context.common.device.clone();
         let queue = self.context.common.queue.clone();
 
+        // Schedule sending the plot vertices to the GPU
+        // TODO: This has pretty bad heap usage patterns, can it be done better?
+        let mut vx_bufs = Vec::with_capacity(self.traces.len());
+        let mut vx_upload_future: Box<GpuFuture> =
+            Box::new(vulkano::sync::now(device.clone()));
+        for trace in &self.traces[..] {
+            let (vx_buf, vx_future) =
+                ImmutableBuffer::from_iter(trace.strip_vertices.iter().cloned(),
+                                           BufferUsage {
+                                               vertex_buffer: true,
+                                               .. BufferUsage::none()
+                                           },
+                                           queue.clone())?;
+            vx_bufs.push(vx_buf);
+            vx_upload_future = Box::new(vx_upload_future.join(vx_future));
+        }
+
         // Shorthand for the output image properties
         let width = self.x_pixels.num_pixels();
         let height = self.y_pixels.num_pixels();
@@ -188,82 +206,73 @@ impl<'a> Plot2D<'a> {
             .. DynamicState::none()
         };
 
-        // Draw the traces one by one
-        // FIXME: Should put them all on a single plot instead
-        self.traces.par_iter().enumerate().map(|(idx, trace)| {
-            // Transfer plot vertices into a buffer
-            let (vx_buf, vx_future) =
-                ImmutableBuffer::from_iter(trace.strip_vertices.iter().cloned(),
+        // Prepare the target image
+        let image =
+            AttachmentImage::with_usage(device.clone(),
+                                        [width, height],
+                                        Format::R8G8B8A8Unorm,
+                                        ImageUsage {
+                                           transfer_source: true,
+                                           color_attachment: true,
+                                           .. ImageUsage::none()
+                                        })?;
+
+        // Attach this image to the render pass using a framebuffer
+        let framebuffer = Arc::new(
+            Framebuffer::start(self.context.render_pass.clone())
+                        .add(image.clone())?
+                        .build()?
+        );
+
+        // Create a buffer to copy the final image contents in
+        // TODO: Avoid using CpuAccessibleBuffer
+        let buf_size = width * height * 4;
+        let buf =
+            CpuAccessibleBuffer::from_iter(device.clone(),
                                            BufferUsage {
-                                               vertex_buffer: true,
-                                               .. BufferUsage::none()
+                                              transfer_destination: true,
+                                              .. BufferUsage::none()
                                            },
-                                           queue.clone())?;
+                                           (0 .. buf_size).map(|_| 0u8))?;
 
-            // Prepare the target image
-            let image =
-                AttachmentImage::with_usage(device.clone(),
-                                            [width, height],
-                                            Format::R8G8B8A8Unorm,
-                                            ImageUsage {
-                                               transfer_source: true,
-                                               color_attachment: true,
-                                               .. ImageUsage::none()
-                                            })?;
+        // ...and we are ready to build our drawing command buffer
+        // TODO: Remove hardcoded clear value and trace color
+        let clear_values = vec![[0.0, 0.2, 0.8, 1.0].into()];
+        let mut command_buffer_builder =
+            AutoCommandBufferBuilder::primary_one_time_submit(device.clone(),
+                                                              queue.family())?
+                                     .begin_render_pass(framebuffer.clone(),
+                                                        false,
+                                                        clear_values)?;
+        for vx_buf in &vx_bufs[..] {
+            command_buffer_builder =
+                command_buffer_builder.draw(self.context.pipeline.clone(),
+                                            &dynamic_state,
+                                            vx_buf.clone(),
+                                            (),
+                                            ())?;
+        }
+        let command_buffer =
+            command_buffer_builder.end_render_pass()?
+                                  .copy_image_to_buffer(image.clone(),
+                                                        buf.clone())?
+                                  .build()?;
 
-            // Attach this image to the render pass using a framebuffer
-            let framebuffer = Arc::new(
-                Framebuffer::start(self.context.render_pass.clone())
-                            .add(image.clone())?
-                            .build()?
-            );
+        // Run the draw calls after the vertices are uploaded
+        // TODO: Do not forcefully synchronize, let the user choose? Or maybe
+        //       provide a batch interface, so that image creation can be
+        //       encapsulated?
+        command_buffer.execute_after(vx_upload_future, queue.clone())?
+                      .then_signal_fence_and_flush()?
+                      .wait(None)?;
 
-            // Create a buffer to copy the final image contents in
-            let buf_size = width * height * 4;
-            let buf =
-                CpuAccessibleBuffer::from_iter(device.clone(),
-                                               BufferUsage {
-                                                  transfer_destination: true,
-                                                  .. BufferUsage::none()
-                                               },
-                                               (0 .. buf_size).map(|_| 0u8))?;
-
-            // ...and we are ready to build our command buffer
-            // TODO: Remove hardcoded clear value and trace color
-            let clear_values = vec![[0.0, 0.2, 0.8, 1.0].into()];
-            let command_buffer =
-                AutoCommandBufferBuilder::primary_one_time_submit(device.clone(),
-                                                                  queue.family())?
-                                         .begin_render_pass(framebuffer.clone(),
-                                                            false,
-                                                            clear_values)?
-                                         .draw(self.context.pipeline.clone(),
-                                               &dynamic_state,
-                                               vx_buf.clone(),
-                                               (),
-                                               ())?
-                                         .end_render_pass()?
-                                         .copy_image_to_buffer(image.clone(),
-                                                               buf.clone())?
-                                         .build()?;
-
-            // The rest is business as usual: run the computation...
-            // TODO: Do not forcefully synchronize, let the user choose? Or maybe
-            //       provide a batch interface, so that image creation can be
-            //       encapsulated?
-            command_buffer.execute_after(vx_future, queue.clone())?
-                          .then_signal_fence_and_flush()?
-                          .wait(None)?;
-
-            // ...and build an image from it. Phew!
-            // TODO: Remove hard-coded file-saving routine
-            let content = buf.read()?;
-            let image =
-                ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, content)
-                            .ok_or(failure::err_msg("Unexpected buffer size"))?;
-            image.save(format!("trace{}.png", idx))?;
-            Ok(())
-        }).reduce(|| Ok(()), |r1, r2| r1.and(r2))
+        // ...then build an image out of the plot and save it
+        // TODO: Remove hard-coded file-saving routine
+        let content = buf.read()?;
+        let image =
+            ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, content)
+                        .ok_or(failure::err_msg("Unexpected buffer size"))?;
+        Ok(image.save("plot.png")?)
     }
 
     // Sample a function on plot pixel edges
