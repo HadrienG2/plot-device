@@ -1,7 +1,12 @@
 //! Long-lived API context object, which caches work that does not need to be
 //! re-done every time a plot is drawn.
 
-use ::plot2d;
+use ::{
+    Bidi,
+    coordinates::AxisRange,
+    IntPixels,
+    plot2d::{self, Plot2D},
+};
 
 use failure;
 
@@ -30,15 +35,15 @@ use vulkanoob::{
 
 /// Persistent Vulkan setup, shared across plots
 pub struct Context {
-    // Context elements which are used by the plot2d module
+    /// Context elements which are used by the plot2d module
     pub(crate) plot2d: plot2d::Context,
 }
 //
 impl Context {
-    // Setup the Vulkan context
-    //
-    // TODO: Make this more customizable
-    //
+    /// Setup the Vulkan context
+    ///
+    /// TODO: Make this more customizable
+    ///
     pub fn new() -> Result<Self> {
         // Build the common part of the Vulkan context
         let common_context = Arc::new(CommonContext::new()?);
@@ -50,6 +55,15 @@ impl Context {
 
         // Return the context object
         Ok(result)
+    }
+
+    /// Create a 2D plot
+    pub fn new_plot_2d(
+        &self,
+        size: Bidi<IntPixels>,
+        axis_ranges: Bidi<AxisRange>
+    ) -> Result<Plot2D> {
+        Plot2D::new(&self.plot2d, size, axis_ranges)
     }
 }
 

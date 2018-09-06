@@ -44,7 +44,10 @@ use vulkanoob::Result;
 
 // Object-oriented plot struct, which collects all plot-wide parameters and
 // provides methods to interact with the plot.
-pub struct Plot2D {
+pub struct Plot2D<'a> {
+    // Long-lived drawing context
+    context: &'a Context,
+
     // Horizontal and vertical axis coordinates
     // TODO: Support multiple axes and autoscale
     // TODO: Support axis styling
@@ -99,16 +102,20 @@ struct Vertex {
 }
 impl_vertex!(Vertex, position);
 
-impl Plot2D {
+impl<'a> Plot2D<'a> {
     // Create a 2D plot
     //
     // TODO: Can pixel dims be extracted from a Vulkan surface?
     //
-    pub fn new(size: Bidi<IntPixels>,
-               axis_ranges: Bidi<AxisRange>) -> Result<Self> {
+    pub(crate) fn new(
+        context: &'a Context,
+        size: Bidi<IntPixels>,
+        axis_ranges: Bidi<AxisRange>
+    ) -> Result<Self> {
         ensure!(size.x > 0, "Invalid horizontal plot size");
         ensure!(size.y > 0, "Invalid vertical plot size");
         Ok(Self {
+            context,
             x_axis: PlotCoordinates1D::new(axis_ranges.x),
             y_axis: PlotCoordinates1D::new(axis_ranges.y.invert()),
             x_pixels: PixelCoordinates1D::new(size.x),
@@ -443,16 +450,20 @@ mod tests {
     // TODO: Build better tests later on
     #[test]
     fn it_works() {
-        // HACK HACK HACK
+        // Enable the env_logger logging implementation
         env_logger::init();
 
-        // Graph parameters
+        // Set up a drawing context
+        let context = context::Context::new().unwrap();
+
+        // Create a plot
         const WIDTH: IntPixels = 8192;
         const HEIGHT: IntPixels = 4320;
+        let x_range = AxisRange::new(-3.14, 3.14).unwrap();
+        let y_range = AxisRange::new(-1.2, 1.2).unwrap();
         let mut plot =
-            Plot2D::new(Bidi { x: WIDTH, y: HEIGHT },
-                        Bidi { x: AxisRange::new(-3.14, 3.14),
-                               y: AxisRange::new(-1.2, 1.2) }).unwrap();
+            context.new_plot_2d(Bidi { x: WIDTH, y: HEIGHT },
+                                Bidi { x: x_range, y: y_range }).unwrap();
 
         // Add two function traces
         const X_SUPERSAMPLING: u8 = 8;
@@ -530,9 +541,6 @@ mod tests {
             assert_eq!(strip_vertices[strip_vertices.len()-1].position[0], 1.);
 
             // ===== EVERYTHING FROM THIS POINT IS A HUGE HACK =====
-
-            // Set up a Vulkan context
-            let context = context::Context::new().unwrap();
 
             // Draw!
             draw_trace(&context.plot2d, &trace.strip_vertices).unwrap();
