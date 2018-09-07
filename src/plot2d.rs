@@ -236,7 +236,7 @@ impl<'a> Plot2D<'a> {
                                            (0 .. buf_size).map(|_| 0u8))?;
 
         // ...and we are ready to build our drawing command buffer
-        // TODO: Remove hardcoded clear value and trace color
+        // TODO: Make clear value configurable during plot creation
         let clear_values = vec![[0.0, 0.2, 0.8, 1.0].into()];
         let mut command_buffer_builder =
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(),
@@ -244,13 +244,18 @@ impl<'a> Plot2D<'a> {
                                      .begin_render_pass(framebuffer.clone(),
                                                         false,
                                                         clear_values)?;
-        for vx_buf in &vx_bufs[..] {
+        for (idx, vx_buf) in vx_bufs.iter().enumerate() {
+            // TODO: Make clear value configurable during trace creation
+            let idx_fraction = idx as f32 / (vx_bufs.len()-1) as f32;
+            let push_constants = fragment_shader::ty::PushConstants {
+                trace_color: [idx_fraction, 1.-idx_fraction, 0.0, 1.0],
+            };
             command_buffer_builder =
                 command_buffer_builder.draw(self.context.pipeline.clone(),
                                             &dynamic_state,
                                             vx_buf.clone(),
                                             (),
-                                            ())?;
+                                            push_constants)?;
         }
         let command_buffer =
             command_buffer_builder.end_render_pass()?
@@ -416,7 +421,7 @@ mod vertex_shader {
 layout(location = 0) in vec2 position;
 
 void main() {
-gl_Position = vec4(position, 0.0, 1.0);
+    gl_Position = vec4(position, 0.0, 1.0);
 }
     "]
     struct _Dummy;
@@ -431,10 +436,14 @@ mod fragment_shader {
     #[src = "
 #version 460
 
+layout(push_constant) uniform PushConstants {
+    vec4 trace_color;
+} u_pushConstants;
+
 layout(location = 0) out vec4 f_color;
 
 void main() {
-f_color = vec4(1.0, 0.5, 0.0, 1.0);
+    f_color = u_pushConstants.trace_color;
 }
     "]
     struct _Dummy;
