@@ -39,3 +39,12 @@ pub struct Bidi<T> {
     x: T,
     y: T,
 }
+
+
+// How we represent colors
+//
+// Components are given in R, G, B, A order and values range between 0. and 1.
+//
+// TODO: Make this more resilient to user mistakes
+//
+pub type Color = [f32; 4];

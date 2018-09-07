@@ -3,6 +3,7 @@
 
 use ::{
     Bidi,
+    Color,
     coordinates::AxisRange,
     IntPixels,
     plot2d::{self, Plot2D},
@@ -75,9 +76,10 @@ impl Context {
     pub fn new_plot_2d(
         &self,
         size: Bidi<IntPixels>,
-        axis_ranges: Bidi<AxisRange>
+        axis_ranges: Bidi<AxisRange>,
+        background_color: Color
     ) -> Result<Plot2D> {
-        Plot2D::new(&self.plot2d, size, axis_ranges)
+        Plot2D::new(&self.plot2d, size, axis_ranges, background_color)
     }
 }
 

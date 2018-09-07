@@ -2,6 +2,7 @@
 
 use ::{
     Bidi,
+    Color,
     FracPixels,
     IntPixels,
     context::CommonContext,
@@ -32,7 +33,7 @@ use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, ImmutableBuffer},
     command_buffer::{AutoCommandBufferBuilder, CommandBuffer, DynamicState},
     descriptor::PipelineLayoutAbstract,
-    format::Format,
+    format::{ClearValue, Format},
     framebuffer::{Framebuffer, RenderPassAbstract, Subpass},
     image::{AttachmentImage, ImageUsage},
     pipeline::{
@@ -67,6 +68,9 @@ pub struct Plot2D<'a> {
     x_pixels: PixelCoordinates1D,
     y_pixels: PixelCoordinates1D,
 
+    // Background color
+    background_color: ClearValue,
+
     // Recorded data
     // TODO: Support non-function data
     data: Vec<FunctionData>,
@@ -75,7 +79,7 @@ pub struct Plot2D<'a> {
     // TODO: Remove this once rendering is implemented
     traces: Box<[FunctionTrace]>,
 }
-
+//
 // Data of a function plot
 struct FunctionData {
     // Level of supersampling that was applied on the horizontal axis
@@ -87,8 +91,12 @@ struct FunctionData {
     // Desired line thickness in pixels
     // TODO: Add DPI support
     line_thickness: FracPixels,
-}
 
+    // Line color
+    // TODO: Separate style and data better
+    color: Color,
+}
+//
 // Trace of a function on a plot
 struct FunctionTrace {
     // Function samples, translated to fractional pixel coordinates on the plot
@@ -101,7 +109,7 @@ struct FunctionTrace {
     // Vertices of the triangle strip
     strip_vertices: Box<[Vertex]>,
 }
-
+//
 // A vertex for the Vulkan renderer
 #[derive(Copy, Clone)]
 struct Vertex {
@@ -109,7 +117,7 @@ struct Vertex {
     position: [f32; 2],
 }
 impl_vertex!(Vertex, position);
-
+//
 impl<'a> Plot2D<'a> {
     // Create a 2D plot
     //
@@ -118,7 +126,8 @@ impl<'a> Plot2D<'a> {
     pub(crate) fn new(
         context: &'a Context,
         size: Bidi<IntPixels>,
-        axis_ranges: Bidi<AxisRange>
+        axis_ranges: Bidi<AxisRange>,
+        background_color: Color
     ) -> Result<Self> {
         ensure!(size.x > 0, "Invalid horizontal plot size");
         ensure!(size.y > 0, "Invalid vertical plot size");
@@ -128,6 +137,7 @@ impl<'a> Plot2D<'a> {
             y_axis: PlotCoordinates1D::new(axis_ranges.y.invert()),
             x_pixels: PixelCoordinates1D::new(size.x),
             y_pixels: PixelCoordinates1D::new(size.y),
+            background_color: background_color.into(),
             data: Vec::new(),
             traces: Box::new([]),
         })
@@ -147,6 +157,7 @@ impl<'a> Plot2D<'a> {
         function: impl Fn(XData) -> YData + Send + Sync,
         x_supersampling: u8,
         line_thickness: FracPixels,
+        color: Color
     ) -> Result<()> {
         ensure!(x_supersampling > 0, "Supersampling factor must be positive");
         ensure!(line_thickness > 0., "Line thickness must be positive");
@@ -154,15 +165,16 @@ impl<'a> Plot2D<'a> {
                                                       x_supersampling);
         self.data.push(FunctionData { x_supersampling,
                                       y_samples,
-                                      line_thickness });
+                                      line_thickness,
+                                      color });
         Ok(())
     }
 
-    // Render function traces
+    // Render function traces to image files
     //
     // TODO: Should ultimately directly render an image via a graphics API
     //
-    pub fn render(&mut self) -> Result<()> {
+    pub fn render(&mut self, filename: &str) -> Result<()> {
         // TODO: For now we keep the full trace data around, later we'll just
         //       drop it at the end and only return the final image.
         // TODO: Think about how testing should be redesigned to account for it.
@@ -225,7 +237,7 @@ impl<'a> Plot2D<'a> {
         );
 
         // Create a buffer to copy the final image contents in
-        // TODO: Avoid using CpuAccessibleBuffer
+        // TODO: Avoid using CpuAccessibleBuffer?
         let buf_size = width * height * 4;
         let buf =
             CpuAccessibleBuffer::from_iter(device.clone(),
@@ -236,8 +248,7 @@ impl<'a> Plot2D<'a> {
                                            (0 .. buf_size).map(|_| 0u8))?;
 
         // ...and we are ready to build our drawing command buffer
-        // TODO: Make clear value configurable during plot creation
-        let clear_values = vec![[0.0, 0.2, 0.8, 1.0].into()];
+        let clear_values = vec![self.background_color];
         let mut command_buffer_builder =
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(),
                                                               queue.family())?
@@ -245,10 +256,8 @@ impl<'a> Plot2D<'a> {
                                                         false,
                                                         clear_values)?;
         for (idx, vx_buf) in vx_bufs.iter().enumerate() {
-            // TODO: Make clear value configurable during trace creation
-            let idx_fraction = idx as f32 / (vx_bufs.len()-1) as f32;
             let push_constants = fragment_shader::ty::PushConstants {
-                trace_color: [idx_fraction, 1.-idx_fraction, 0.0, 1.0],
+                trace_color: self.data[idx].color,
             };
             command_buffer_builder =
                 command_buffer_builder.draw(self.context.pipeline.clone(),
@@ -264,20 +273,16 @@ impl<'a> Plot2D<'a> {
                                   .build()?;
 
         // Run the draw calls after the vertices are uploaded
-        // TODO: Do not forcefully synchronize, let the user choose? Or maybe
-        //       provide a batch interface, so that image creation can be
-        //       encapsulated?
         command_buffer.execute_after(vx_upload_future, queue.clone())?
                       .then_signal_fence_and_flush()?
                       .wait(None)?;
 
         // ...then build an image out of the plot and save it
-        // TODO: Remove hard-coded file-saving routine
         let content = buf.read()?;
         let image =
             ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, content)
                         .ok_or(failure::err_msg("Unexpected buffer size"))?;
-        Ok(image.save("plot.png")?)
+        Ok(image.save(filename)?)
     }
 
     // Sample a function on plot pixel edges
@@ -508,6 +513,8 @@ impl Context {
                                 Subpass::from(render_pass.clone(), 0)
                                         .ok_or(failure::err_msg("Bad subpass"))?
                              )
+                             // - Enable alpha blending
+                             .blend_alpha_blending()
                              // - Here is the target device: build the pipeline!
                              .build(device.clone())?
         );
@@ -548,13 +555,20 @@ mod tests {
         let y_range = AxisRange::new(-1.2, 1.2).unwrap();
         let mut plot =
             context.new_plot_2d(Bidi { x: WIDTH, y: HEIGHT },
-                                Bidi { x: x_range, y: y_range }).unwrap();
+                                Bidi { x: x_range, y: y_range },
+                                [0.2, 0.2, 1., 0.8]).unwrap();
 
         // Add two function traces
         const X_SUPERSAMPLING: u8 = 8;
         const LINE_THICKNESS: FracPixels = 42.;
-        plot.add_function(|x| x.sin(), X_SUPERSAMPLING, LINE_THICKNESS).unwrap();
-        plot.add_function(|x| x.cos(), X_SUPERSAMPLING, LINE_THICKNESS).unwrap();
+        plot.add_function(|x| x.sin(),
+                           X_SUPERSAMPLING,
+                           LINE_THICKNESS,
+                           [1., 0., 0., 0.6]).unwrap();
+        plot.add_function(|x| x.cos(),
+                           X_SUPERSAMPLING,
+                           LINE_THICKNESS,
+                           [0., 1., 0., 0.6]).unwrap();
 
         // Check the recorded function data
         const X_SUBPIXELS: IntPixels = WIDTH * (X_SUPERSAMPLING as IntPixels);
@@ -577,7 +591,7 @@ mod tests {
         }
 
         // Render the function traces
-        plot.render().unwrap();
+        plot.render("plot.png").unwrap();
 
         // Prepare to check the traces
         let y_to_pixel = plot.y_axis.to(&plot.y_pixels);
