@@ -136,7 +136,13 @@ impl CommonContext {
         };
 
         // Check if the multisampling factor makes sense for that device
-        ensure!(multisampling_factor > 0, "Invalid multisampling factor");
+        ensure!(multisampling_factor.is_power_of_two(),
+                "Invalid multisampling factor");
+        ensure!(multisampling_factor &
+                device.physical_device()
+                      .limits()
+                      .framebuffer_color_sample_counts() != 0,
+                "Unsupported multisampling factor");
 
         // Return the context object
         Ok(Self { device, queue, multisampling_factor })

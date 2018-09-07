@@ -35,7 +35,7 @@ use vulkano::{
     descriptor::PipelineLayoutAbstract,
     format::{ClearValue, Format},
     framebuffer::{Framebuffer, RenderPassAbstract, Subpass},
-    image::{AttachmentImage, Dimensions, ImageUsage, StorageImage},
+    image::{AttachmentImage, Dimensions, StorageImage},
     pipeline::{
         GraphicsPipeline,
         vertex::SingleBufferDefinition,
@@ -558,7 +558,7 @@ mod tests {
         env_logger::init();
 
         // Set up a drawing context
-        let context = context::Context::new(2).unwrap();
+        let context = context::Context::new(8).unwrap();
 
         // Create a plot
         const WIDTH: IntPixels = 8192;
@@ -571,13 +571,13 @@ mod tests {
                                 [0.2, 0.2, 1., 0.8]).unwrap();
 
         // Add two function traces
-        const X_SUPERSAMPLING: u8 = 8;
+        const X_SUPERSAMPLING: u8 = 64;
         const LINE_THICKNESS: FracPixels = 42.;
-        plot.add_function(|x| x.sin(),
+        plot.add_function(|x| (10.*x).sin(),
                            X_SUPERSAMPLING,
                            LINE_THICKNESS,
                            [1., 0., 0., 0.6]).unwrap();
-        plot.add_function(|x| x.cos(),
+        plot.add_function(|x| (10.*x).cos(),
                            X_SUPERSAMPLING,
                            LINE_THICKNESS,
                            [0., 1., 0., 0.6]).unwrap();
@@ -599,7 +599,7 @@ mod tests {
                 y_samples[trace] = y_sample;
             }
             let sum_squares = y_samples[0].powi(2) + y_samples[1].powi(2);
-            assert!((sum_squares - 1.).abs() <= float_coord::EPSILON);
+            assert!((sum_squares - 1.).abs() <= 2.*float_coord::EPSILON);
         }
 
         // Render the function traces
