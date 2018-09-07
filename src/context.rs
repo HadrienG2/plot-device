@@ -51,7 +51,7 @@ impl Context {
     ///
     /// TODO: Make this more customizable
     ///
-    pub fn new() -> Result<Self> {
+    pub fn new(multisampling_factor: u32) -> Result<Self> {
         // Set up a Vulkan instance
         let instance = EasyInstance::new(
             Some(&app_info_from_cargo_toml!()),
@@ -60,7 +60,9 @@ impl Context {
         )?;
 
         // Build the common part of the Vulkan context
-        let common_context = Arc::new(CommonContext::new(&instance)?);
+        let common_context =
+            Arc::new(CommonContext::new(&instance,
+                                        multisampling_factor)?);
 
         // Build plot-specific context objects
         let result = Self {
@@ -94,6 +96,9 @@ pub(crate) struct CommonContext {
     // TODO: Study multi-queue workflows
     //
     pub(crate) queue: Arc<Queue>,
+
+    // Degree of multisampling to be used
+    pub(crate) multisampling_factor: u32,
 }
 //
 impl CommonContext {
@@ -101,7 +106,7 @@ impl CommonContext {
     //
     // TODO: Make this more customizable
     //
-    fn new(instance: &EasyInstance) -> Result<Self> {
+    fn new(instance: &EasyInstance, multisampling_factor: u32) -> Result<Self> {        
         // Setup a Vulkan device and command queue
         let (device, queue) = {
             // Select which physical device we are going to use
@@ -130,8 +135,11 @@ impl CommonContext {
             )?.expect("Device selection should have prevented this error")
         };
 
+        // Check if the multisampling factor makes sense for that device
+        ensure!(multisampling_factor > 0, "Invalid multisampling factor");
+
         // Return the context object
-        Ok(Self { device, queue })
+        Ok(Self { device, queue, multisampling_factor })
     }
 }
 

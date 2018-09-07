@@ -35,7 +35,7 @@ use vulkano::{
     descriptor::PipelineLayoutAbstract,
     format::{ClearValue, Format},
     framebuffer::{Framebuffer, RenderPassAbstract, Subpass},
-    image::{AttachmentImage, ImageUsage},
+    image::{AttachmentImage, Dimensions, ImageUsage, StorageImage},
     pipeline::{
         GraphicsPipeline,
         vertex::SingleBufferDefinition,
@@ -127,7 +127,7 @@ impl<'a> Plot2D<'a> {
         context: &'a Context,
         size: Bidi<IntPixels>,
         axis_ranges: Bidi<AxisRange>,
-        background_color: Color
+        background_color: Color,
     ) -> Result<Self> {
         ensure!(size.x > 0, "Invalid horizontal plot size");
         ensure!(size.y > 0, "Invalid vertical plot size");
@@ -207,6 +207,7 @@ impl<'a> Plot2D<'a> {
         // Shorthand for the output image properties
         let width = self.x_pixels.num_pixels();
         let height = self.y_pixels.num_pixels();
+        let multisampling_factor = self.context.common.multisampling_factor;
 
         // Define the viewport transform, now that we know the target image dims
         let dynamic_state = DynamicState {
@@ -218,21 +219,25 @@ impl<'a> Plot2D<'a> {
             .. DynamicState::none()
         };
 
+        // Prepare the multisampled image
+        let ms_image =
+            AttachmentImage::transient_multisampled(device.clone(),
+                                                    [width, height],
+                                                    multisampling_factor,
+                                                    Format::R8G8B8A8Unorm)?;
+
         // Prepare the target image
-        let image =
-            AttachmentImage::with_usage(device.clone(),
-                                        [width, height],
-                                        Format::R8G8B8A8Unorm,
-                                        ImageUsage {
-                                           transfer_source: true,
-                                           color_attachment: true,
-                                           .. ImageUsage::none()
-                                        })?;
+        let final_image =
+            StorageImage::new(device.clone(),
+                              Dimensions::Dim2d { width, height },
+                              Format::R8G8B8A8Unorm,
+                              Some(queue.family()))?;
 
         // Attach this image to the render pass using a framebuffer
         let framebuffer = Arc::new(
             Framebuffer::start(self.context.render_pass.clone())
-                        .add(image.clone())?
+                        .add(ms_image.clone())?
+                        .add(final_image.clone())?
                         .build()?
         );
 
@@ -248,7 +253,7 @@ impl<'a> Plot2D<'a> {
                                            (0 .. buf_size).map(|_| 0u8))?;
 
         // ...and we are ready to build our drawing command buffer
-        let clear_values = vec![self.background_color];
+        let clear_values = vec![self.background_color, ClearValue::None];
         let mut command_buffer_builder =
             AutoCommandBufferBuilder::primary_one_time_submit(device.clone(),
                                                               queue.family())?
@@ -268,7 +273,7 @@ impl<'a> Plot2D<'a> {
         }
         let command_buffer =
             command_buffer_builder.end_render_pass()?
-                                  .copy_image_to_buffer(image.clone(),
+                                  .copy_image_to_buffer(final_image.clone(),
                                                         buf.clone())?
                                   .build()?;
 
@@ -481,16 +486,23 @@ impl Context {
             single_pass_renderpass!(
                 device.clone(),
                 attachments: {
-                    color: {
+                    intermediary: {
                         load: Clear,
+                        store: DontCare,
+                        format: Format::R8G8B8A8Unorm,
+                        samples: common_context.multisampling_factor,
+                    },
+                    color: {
+                        load: DontCare,
                         store: Store,
                         format: Format::R8G8B8A8Unorm,
                         samples: 1,
                     }
                 },
                 pass: {
-                    color: [color],
-                    depth_stencil: {}
+                    color: [intermediary],
+                    depth_stencil: {},
+                    resolve: [color],
                 }
             )?
         );
@@ -546,7 +558,7 @@ mod tests {
         env_logger::init();
 
         // Set up a drawing context
-        let context = context::Context::new().unwrap();
+        let context = context::Context::new(2).unwrap();
 
         // Create a plot
         const WIDTH: IntPixels = 8192;
