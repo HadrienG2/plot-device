@@ -51,9 +51,15 @@ impl Context {
     /// TODO: Make this more customizable
     ///
     pub fn new() -> Result<Self> {
+        // Set up a Vulkan instance
+        let instance = EasyInstance::new(
+            Some(&app_info_from_cargo_toml!()),
+            &InstanceExtensions::none(),
+            vec!["VK_LAYER_LUNARG_standard_validation"]
+        )?;
+
         // Build the common part of the Vulkan context
-        let (instance, common_context) = CommonContext::new()?;
-        let common_context = Arc::new(common_context);
+        let common_context = Arc::new(CommonContext::new(&instance)?);
 
         // Build plot-specific context objects
         let result = Self {
@@ -93,14 +99,7 @@ impl CommonContext {
     //
     // TODO: Make this more customizable
     //
-    fn new() -> Result<(EasyInstance, Self)> {
-        // Set up a Vulkan instance
-        let instance = EasyInstance::new(
-            Some(&app_info_from_cargo_toml!()),
-            &InstanceExtensions::none(),
-            vec!["VK_LAYER_LUNARG_standard_validation"]
-        )?;
-
+    fn new(instance: &EasyInstance) -> Result<Self> {
         // Setup a Vulkan device and command queue
         let (device, queue) = {
             // Select which physical device we are going to use
@@ -130,7 +129,7 @@ impl CommonContext {
         };
 
         // Return the context object
-        Ok((instance, Self { device, queue }))
+        Ok(Self { device, queue })
     }
 }
 
