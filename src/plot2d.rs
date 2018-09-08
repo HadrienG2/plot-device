@@ -172,7 +172,7 @@ impl<'a> Plot2D<'a> {
 
     // Render function traces to image files
     //
-    // TODO: Should ultimately directly render an image via a graphics API
+    // TODO: Should be able to render to a window too
     //
     pub fn render(&mut self, filename: &str) -> Result<()> {
         // TODO: For now we keep the full trace data around, later we'll just
